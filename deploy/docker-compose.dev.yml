@@ -1,0 +1,24 @@
+# Local development database. Start with:
+#   docker compose -f deploy/docker-compose.dev.yml up -d
+name: paynash-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pos
+      POSTGRES_USER: pos
+      POSTGRES_PASSWORD: pos
+      TZ: Europe/Zurich
+    ports:
+      - "5432:5432"
+    volumes:
+      - pos-dev-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pos -d pos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pos-dev-db:

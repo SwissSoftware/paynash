@@ -34,14 +34,14 @@
 ## 4. Order taking (spec: order-taking)
 
 - [x] 4.1 Add migrations for `order`, `order_round`, and `order_line` (snapshot fields, status, version) plus a partial unique index for one open order per table. Verify with a test: a second open order for the same table fails at the DB level
-- [ ] 4.2 Add idempotency middleware (`Idempotency-Key`, 24 h storage) for the mutating order/payment endpoints. Verify with a test: the same key twice → identical result, only one effect
-- [ ] 4.3 Implement "open order" (open or return the existing one), table label validation, and assigning the waiter. Verify with tests for both cases
-- [ ] 4.4 Implement adding, changing, and removing unsent lines with snapshot fields, qty 1–99, and a note ≤ 140 characters. Reject inactive items. Verify with tests including a price change after adding (snapshot stays)
-- [ ] 4.5 Implement "send round": mark unsent lines as sent, create a round, and in the same transaction create print jobs (hook for 5.2). Do nothing if there are no unsent lines. Verify with tests: first round, follow-up round prints only new lines, double request → one round
-- [ ] 4.6 Implement cancelling sent lines (reason required; status cancelled; excluded from total; creates a cancellation job). Verify with tests
-- [ ] 4.7 Add the open orders list (table, waiter, total, age) and admin void with a reason (waiter → 403). Verify with tests
-- [ ] 4.8 Handle concurrency: optimistic locking on state changes and parallel line additions. Verify with a concurrency test (two parallel additions → both lines exist)
-- [ ] 4.9 Build the app order screen: choose a table, tap tiles to add, change quantity and note, send button with status, show cancelling. Build the order overview with 3 s polling on visible screens and a "no connection" banner. Verify with widget tests and a manual test with two browser windows on the same table (sync ≤ 5 s)
+- [x] 4.2 Add idempotency middleware (`Idempotency-Key`, 24 h storage) for the mutating order/payment endpoints. Verify with a test: the same key twice → identical result, only one effect
+- [x] 4.3 Implement "open order" (open or return the existing one), table label validation, and assigning the waiter. Verify with tests for both cases
+- [x] 4.4 Implement adding, changing, and removing unsent lines with snapshot fields, qty 1–99, and a note ≤ 140 characters. Reject inactive items. Verify with tests including a price change after adding (snapshot stays)
+- [x] 4.5 Implement "send round": mark unsent lines as sent, create a round, and in the same transaction create print jobs (hook for 5.2). Do nothing if there are no unsent lines. Verify with tests: first round, follow-up round prints only new lines, double request → one round
+- [x] 4.6 Implement cancelling sent lines (reason required; status cancelled; excluded from total; creates a cancellation job). Verify with tests
+- [x] 4.7 Add the open orders list (table, waiter, total, age) and admin void with a reason (waiter → 403). Verify with tests
+- [x] 4.8 Handle concurrency: optimistic locking on state changes and parallel line additions. Verify with a concurrency test (two parallel additions → both lines exist)
+- [x] 4.9 Build the app order screen: choose a table, tap tiles to add, change quantity and note, send button with status, show cancelling. Build the order overview with 3 s polling on visible screens and a "no connection" banner. Verify with widget tests and a manual test with two browser windows on the same table (sync ≤ 5 s)
 
 ## 5. Ticket printing (spec: ticket-printing)
 
