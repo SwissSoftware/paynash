@@ -1,0 +1,20 @@
+# HTTPS entry point (design D11). POS_TLS is "internal" (certificate from Caddy's
+# own local CA) or "<cert file> <key file>" for a certificate you provide in ./certs.
+{$POS_HOSTNAME} {
+	tls {$POS_TLS:internal}
+	encode zstd gzip
+
+	handle_path /api/* {
+		reverse_proxy backend:8081
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	# The app shell must be revalidated so updates reach the browsers.
+	@shell path / /index.html /flutter_bootstrap.js /flutter_service_worker.js
+	header @shell Cache-Control "no-cache"
+}

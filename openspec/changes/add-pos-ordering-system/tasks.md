@@ -57,13 +57,13 @@ Orders are no longer kept open per table: the waiter builds the order on the dev
 
 ## 5. Ticket printing (spec: ticket-printing)
 
-- [ ] 5.1 Add migrations for `printer` (name, address, device ID, type, active) and `print_job` (printer, content, kind normal/storno/reprint, status, attempts, last_error). Implement printer admin endpoints with the rule "exactly one active printer per type". Verify with tests
-- [ ] 5.2 Implement ticket rendering: split an order by type into at most one ticket per printer. Content: table, waiter, time, order number, qty × name, note; STORNO (single line and voided order, at most one per printer) and REPRINT variants. Verify with snapshot tests of the rendered tickets for a mixed order, drinks only, storno, void, and reprint
-- [ ] 5.3 Implement the ePOS-Print XML builder (text, double size, feed, `cut`) and the HTTP client against `/cgi-bin/epos/service.cgi`, including response parsing and error-code mapping (offline, paper end, cover open, ...). Verify with unit tests against recorded sample responses
-- [ ] 5.4 Implement the print worker: sequential per printer, retry with backoff ≥ 60 s, `printed`/`failed`, no automatic retry after confirmed printing or an unclear outcome. Verify with tests against a fake printer server (offline → failed after ≥ 60 s; success → exactly 1 request)
-- [ ] 5.5 Handle a missing printer for a type: the job fails immediately with "no printer configured" and the order is saved anyway. Verify with a test
-- [ ] 5.6 Add endpoints for test print and reprint (new job with the REPRINT flag) and expose ticket status per order for the app. Verify with tests
-- [ ] 5.7 Build the app UI: show print status per order in the order history, a failed-ticket warning with the error, and a reprint button. Build the admin UI: printer configuration and test print. Verify through the UI with a fake printer
+- [x] 5.1 Add migrations for `printer` (name, address, device ID, type, active) and `print_job` (printer, content, kind normal/storno/reprint, status, attempts, last_error). Implement printer admin endpoints with the rule "exactly one active printer per type". Verify with tests
+- [x] 5.2 Implement ticket rendering: split an order by type into at most one ticket per printer. Content: table, waiter, time, order number, qty × name, note; STORNO (single line and voided order, at most one per printer) and REPRINT variants. Verify with snapshot tests of the rendered tickets for a mixed order, drinks only, storno, void, and reprint
+- [x] 5.3 Implement the ePOS-Print XML builder (text, double size, feed, `cut`) and the HTTP client against `/cgi-bin/epos/service.cgi`, including response parsing and error-code mapping (offline, paper end, cover open, ...). Verify with unit tests against recorded sample responses
+- [x] 5.4 Implement the print worker: sequential per printer, retry with backoff ≥ 60 s, `printed`/`failed`, no automatic retry after confirmed printing or an unclear outcome. Verify with tests against a fake printer server (offline → failed after ≥ 60 s; success → exactly 1 request)
+- [x] 5.5 Handle a missing printer for a type: the job fails immediately with "no printer configured" and the order is saved anyway. Verify with a test
+- [x] 5.6 Add endpoints for test print and reprint (new job with the REPRINT flag) and expose ticket status per order for the app. Verify with tests
+- [x] 5.7 Build the app UI: show print status per order in the order history, a failed-ticket warning with the error, and a reprint button. Build the admin UI: printer configuration and test print. Verify through the UI with a fake printer
 - [ ] 5.8 Run a hardware test with a real Epson TM-m30III: enable ePOS-Print, run a test print, check umlauts (ä, ö, ü, é), the cut, and readability; test paper end and cover open. Verify with photos/notes of the test tickets in `docs/printing.md`, and adjust the code page/transliteration if needed
 - [ ] 5.9 Document printer setup (static IP, enable ePOS, device ID) in `docs/printing.md` and verify that the steps can be reproduced on a reset printer
 
@@ -73,14 +73,14 @@ Removed: there is no payment in the app (see proposal). The section number is ke
 
 ## 7. CSV export (spec: order-export)
 
-- [ ] 7.1 Implement the CSV writer: UTF-8 BOM, comma separator, RFC 4180 quoting, amounts with a dot and two decimals, ISO 8601 with offset (Europe/Zurich). Verify with unit tests for commas, quotes, line breaks in notes, and umlauts
-- [ ] 7.2 Add the export endpoint (admin only, `from`/`to` inclusive by local date, status filter `sent`/`voided`/all with default sent, filtered by `sent_at`, header-only when empty, filename with the date range, streaming). Verify with tests: one day, empty period, from > to → 400, waiter → 403, cancelled line → line_total 0.00
+- [x] 7.1 Implement the CSV writer: UTF-8 BOM, comma separator, RFC 4180 quoting, amounts with a dot and two decimals, ISO 8601 with offset (Europe/Zurich). Verify with unit tests for commas, quotes, line breaks in notes, and umlauts
+- [x] 7.2 Add the export endpoint (admin only, `from`/`to` inclusive by local date, status filter `sent`/`voided`/all with default sent, filtered by `sent_at`, header-only when empty, filename with the date range, streaming). Verify with tests: one day, empty period, from > to → 400, waiter → 403, cancelled line → line_total 0.00
 - [ ] 7.3 Build the admin UI export dialog (date range, status) with download. Verify manually that the downloaded file opens in Excel with the columns intact and correct umlauts
 
 ## 8. Deployment and operations
 
-- [ ] 8.1 Create a production Docker Compose setup (backend, PostgreSQL, image volume, restart policies, HTTPS with a local hostname/certificate). Verify that `docker compose up` on a clean machine passes the health check over HTTPS
-- [ ] 8.2 Set up a daily DB and image backup with documented restore. Verify with a restore test on a second instance
+- [x] 8.1 Create a production Docker Compose setup (backend, PostgreSQL, image volume, restart policies, HTTPS with a local hostname/certificate). Verify that `docker compose up` on a clean machine passes the health check over HTTPS
+- [x] 8.2 Set up a daily DB and image backup with documented restore. Verify with a restore test on a second instance
 - [ ] 8.3 Write the operations guide `docs/operations.md` (installation, first admin, printer setup, update, backup/restore, troubleshooting) and verify that a second person can install it using only the guide
 
 ## 9. End-to-end integration
