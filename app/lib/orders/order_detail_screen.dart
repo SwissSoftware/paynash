@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../menu/item_visuals.dart';
+import '../menu/menu_models.dart';
 import 'order_api.dart';
 import 'order_history_screen.dart';
 import 'order_models.dart';
@@ -86,6 +87,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
     await _run(() => widget.orderApi.cancelLine(widget.orderId, line.id, reason));
   }
 
+  Future<void> _reprint(TicketData ticket) =>
+      _run(() => widget.orderApi.reprint(widget.orderId, ticket.id));
+
   Future<void> _void(OrderData order) async {
     final reason = await _askReason('Void the order for table ${order.tableLabel}?', 'Void order');
     if (reason == null) return;
@@ -98,6 +102,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
     final text = Theme.of(context).textTheme;
     final canChange =
         widget.isAdmin && !_busy && !_offline && order != null && order.status == OrderStatus.sent;
+    final canReprint = !_busy && !_offline;
 
     Widget body;
     if (_error != null && order == null) {
@@ -123,6 +128,21 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
               key: const Key('order-sent-info'),
             ),
           ),
+          for (final t in order.tickets.where((t) => t.needsAttention))
+            Material(
+              key: Key('print-warning-${t.id}'),
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: ListTile(
+                leading: const Icon(Icons.print_disabled),
+                title: Text('${_ticketName(t)} failed: ${t.error}'),
+                subtitle: const Text('Fix the printer, then reprint the ticket.'),
+                trailing: FilledButton.tonal(
+                  key: Key('print-warning-reprint-${t.id}'),
+                  onPressed: canReprint ? () => _reprint(t) : null,
+                  child: const Text('Reprint'),
+                ),
+              ),
+            ),
           if (order.status == OrderStatus.voided)
             Material(
               key: const Key('order-voided'),
@@ -137,6 +157,21 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
               children: [
                 for (final line in order.lines)
                   _LineTile(line: line, onCancel: canChange ? () => _cancel(line) : null),
+                if (order.tickets.isNotEmpty) ...[
+                  const Divider(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                    child: Text('Tickets', style: text.titleSmall),
+                  ),
+                  for (final t in order.tickets)
+                    _TicketTile(
+                      ticket: t,
+                      name: _ticketName(t),
+                      onReprint: canReprint && t.status != TicketStatus.pending
+                          ? () => _reprint(t)
+                          : null,
+                    ),
+                ],
               ],
             ),
           ),
@@ -173,6 +208,54 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
           if (_offline) const NoConnectionBanner(),
           Expanded(child: body),
         ],
+      ),
+    );
+  }
+}
+
+/// "Kitchen ticket", "Bar STORNO", "Kitchen reprint"; the type when no
+/// printer was configured.
+String _ticketName(TicketData t) {
+  final where = t.printer ?? (t.type == ItemType.food ? 'Food' : 'Drinks');
+  return switch (t.kind) {
+    TicketKind.normal => '$where ticket',
+    TicketKind.storno => '$where STORNO',
+    TicketKind.reprint => '$where reprint',
+  };
+}
+
+class _TicketTile extends StatelessWidget {
+  const _TicketTile({required this.ticket, required this.name, required this.onReprint});
+
+  final TicketData ticket;
+  final String name;
+
+  /// Null while the ticket is still being printed.
+  final VoidCallback? onReprint;
+
+  @override
+  Widget build(BuildContext context) {
+    final error = Theme.of(context).colorScheme.error;
+    final (icon, status, color) = switch (ticket.status) {
+      TicketStatus.pending => (Icons.hourglass_top, 'Printing…', null),
+      TicketStatus.printed => (Icons.check_circle_outline, 'Printed', null),
+      TicketStatus.failed => (
+        Icons.print_disabled,
+        'Failed: ${ticket.error}${ticket.reprinted ? ' · reprinted' : ''}',
+        ticket.reprinted ? null : error,
+      ),
+    };
+    return ListTile(
+      key: Key('ticket-${ticket.id}'),
+      dense: true,
+      leading: Icon(icon, color: color),
+      title: Text(name),
+      subtitle: Text(status, key: Key('ticket-status-${ticket.id}'), style: TextStyle(color: color)),
+      trailing: TextButton.icon(
+        key: Key('ticket-reprint-${ticket.id}'),
+        onPressed: onReprint,
+        icon: const Icon(Icons.print),
+        label: const Text('Reprint'),
       ),
     );
   }

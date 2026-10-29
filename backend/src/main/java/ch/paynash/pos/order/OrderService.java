@@ -19,6 +19,8 @@ import ch.paynash.pos.common.TableLabels;
 import ch.paynash.pos.menu.Category;
 import ch.paynash.pos.menu.MenuItem;
 import ch.paynash.pos.menu.MenuRepository;
+import ch.paynash.pos.printing.PrintJob;
+import ch.paynash.pos.printing.PrintJobRepository;
 
 /**
  * Order taking (spec order-taking). An order is built on the device and sent in one request; a sent order is final
@@ -34,21 +36,24 @@ public class OrderService {
 
 	private final TicketPrinting printing;
 
+	private final PrintJobRepository printJobs;
+
 	private final Clock clock;
 
 	private final ZoneId zone;
 
-	public OrderService(OrderRepository orders, MenuRepository menu, TicketPrinting printing, Clock clock,
-			@Value("${pos.time-zone}") ZoneId zone) {
+	public OrderService(OrderRepository orders, MenuRepository menu, TicketPrinting printing,
+			PrintJobRepository printJobs, Clock clock, @Value("${pos.time-zone}") ZoneId zone) {
 		this.orders = orders;
 		this.menu = menu;
 		this.printing = printing;
+		this.printJobs = printJobs;
 		this.clock = clock;
 		this.zone = zone;
 	}
 
-	/** An order with everything the order history shows. */
-	public record OrderDetail(Order order, List<OrderLine> lines) {
+	/** An order with everything the order history shows, including its tickets. */
+	public record OrderDetail(Order order, List<OrderLine> lines, List<PrintJob> tickets) {
 
 		public long totalRappen() {
 			return OrderLine.totalRappen(lines);
@@ -69,7 +74,7 @@ public class OrderService {
 
 	public OrderDetail detail(long orderId) {
 		Order order = orders.find(orderId).orElseThrow(() -> ApiException.notFound("Order"));
-		return new OrderDetail(order, orders.findLines(orderId));
+		return new OrderDetail(order, orders.findLines(orderId), printJobs.findByOrder(orderId));
 	}
 
 	// --- sending
@@ -108,7 +113,7 @@ public class OrderService {
 		}
 		OrderDetail detail = detail(orderId);
 		printing.orderSent(detail.order(), detail.lines());
-		return detail;
+		return detail(orderId);
 	}
 
 	// --- admin
@@ -148,7 +153,7 @@ public class OrderService {
 		orders.voidOrder(orderId, admin.id(), reason.trim(), now);
 		OrderDetail detail = detail(orderId);
 		printing.orderVoided(detail.order(), detail.lines().stream().filter(l -> toCancel.contains(l.id())).toList());
-		return detail;
+		return detail(orderId);
 	}
 
 	// --- helpers

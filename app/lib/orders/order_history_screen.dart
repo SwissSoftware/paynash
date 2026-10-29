@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../export/export_api.dart';
+import '../export/export_dialog.dart';
 import 'order_api.dart';
 import 'order_detail_screen.dart';
 import 'order_models.dart';
@@ -9,9 +11,17 @@ import 'polling.dart';
 /// The orders sent on one day, newest first. Refreshes while visible, so
 /// orders sent on other devices appear within one poll.
 class OrderHistoryScreen extends StatefulWidget {
-  const OrderHistoryScreen({super.key, required this.orderApi, required this.isAdmin});
+  const OrderHistoryScreen({
+    super.key,
+    required this.orderApi,
+    required this.isAdmin,
+    this.exportApi,
+  });
 
   final OrderApi orderApi;
+
+  /// Set for admins: offers the CSV export.
+  final ExportApi? exportApi;
 
   /// Admins can cancel lines and void orders in the detail view.
   final bool isAdmin;
@@ -78,6 +88,16 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with Polling {
     if (picked != null) _setDay(picked);
   }
 
+  Future<void> _export(ExportApi api) async {
+    final file = await showDialog<String>(
+      context: context,
+      builder: (_) => ExportDialog(api: api, initialDay: _shownDay),
+    );
+    if (file != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Downloaded $file')));
+    }
+  }
+
   Future<void> _show(int orderId) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -120,6 +140,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with Polling {
                 icon: const Icon(Icons.chevron_right),
                 onPressed: _day == null ? null : () => _setDay(day.add(const Duration(days: 1))),
               ),
+              if (widget.exportApi case final api?)
+                IconButton(
+                  key: const Key('history-export'),
+                  tooltip: 'Export as CSV',
+                  icon: const Icon(Icons.file_download),
+                  onPressed: () => _export(api),
+                ),
             ],
           ),
         ),
@@ -160,18 +187,52 @@ class _OrderTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final error = Theme.of(context).colorScheme.error;
     final voided = order.status == OrderStatus.voided;
+    final failed = order.printStatus == TicketStatus.failed;
     return ListTile(
       key: Key('history-order-${order.id}'),
       onTap: onTap,
       leading: CircleAvatar(child: Text(order.tableLabel, style: text.labelLarge, maxLines: 1)),
-      title: Text('Table ${order.tableLabel}'),
-      subtitle: Text('${formatTime(order.sentAt)} · ${order.waiter}${voided ? ' · Voided' : ''}'),
+      title: Row(
+        children: [
+          Flexible(child: Text('Table ${order.tableLabel}')),
+          const SizedBox(width: 8),
+          ?_printIcon(order.printStatus, error),
+        ],
+      ),
+      subtitle: Text(
+        [
+          '${formatTime(order.sentAt)} · ${order.waiter}${voided ? ' · Voided' : ''}',
+          if (failed) 'Ticket failed: ${order.printError}',
+        ].join('\n'),
+        style: failed ? TextStyle(color: error) : null,
+      ),
+      isThreeLine: failed,
       trailing: Text(
         'CHF ${order.total}',
         style: text.titleMedium?.copyWith(decoration: voided ? TextDecoration.lineThrough : null),
       ),
     );
+  }
+
+  Widget? _printIcon(TicketStatus? status, Color error) {
+    final key = Key('print-status-${order.id}');
+    return switch (status) {
+      TicketStatus.failed => Tooltip(
+        message: 'Ticket failed',
+        child: Icon(Icons.print_disabled, key: key, color: error, size: 18),
+      ),
+      TicketStatus.pending => Tooltip(
+        message: 'Printing',
+        child: Icon(Icons.hourglass_top, key: key, size: 18),
+      ),
+      TicketStatus.printed => Tooltip(
+        message: 'Printed',
+        child: Icon(Icons.print, key: key, size: 18, color: Colors.grey),
+      ),
+      null => null,
+    };
   }
 }
 

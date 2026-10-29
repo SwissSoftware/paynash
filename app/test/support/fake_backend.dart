@@ -181,6 +181,9 @@ class FakeBackend {
   int _nextOrderId = 1000;
   int _nextLineId = 5000;
 
+  /// Status of tickets created by a reprint.
+  String reprintStatus = 'printed';
+
   /// When true, every request fails as if the server were unreachable.
   bool offline = false;
 
@@ -210,9 +213,55 @@ class FakeBackend {
       'version': 0,
       'voidReason': null,
       'lines': <Map<String, dynamic>>[for (final (itemId, qty) in lines) _line(itemId, qty, null)],
+      'tickets': <Map<String, dynamic>>[],
     };
     orders.add(order);
     return order;
+  }
+
+  // --- tickets
+
+  int _nextTicketId = 9000;
+
+  /// Adds a ticket to an order, e.g. a failed kitchen ticket.
+  Map<String, dynamic> addTicket(
+    Map<String, dynamic> order, {
+    String type = 'food',
+    String kind = 'normal',
+    String? printer = 'Kitchen',
+    String status = 'printed',
+    String? error,
+    int? reprintOf,
+  }) {
+    final ticket = {
+      'id': _nextTicketId++,
+      'kind': kind,
+      'type': type,
+      'printer': printer,
+      'status': status,
+      'error': error,
+      'reprintOf': reprintOf,
+    };
+    (order['tickets'] as List).add(ticket);
+    return ticket;
+  }
+
+  List<Map<String, dynamic>> _ticketsJson(Map<String, dynamic> o) {
+    final tickets = (o['tickets'] as List).cast<Map<String, dynamic>>();
+    return [
+      for (final t in tickets)
+        {...t, 'reprinted': tickets.any((r) => r['reprintOf'] == t['id'])},
+    ];
+  }
+
+  /// Like the backend: failed if any current ticket failed, else pending if
+  /// any is pending; tickets replaced by a reprint do not count.
+  (String?, String?) _printStatus(Map<String, dynamic> o) {
+    final current = _ticketsJson(o).where((t) => t['reprinted'] != true).toList();
+    final failed = current.where((t) => t['status'] == 'failed');
+    if (failed.isNotEmpty) return ('failed', failed.first['error'] as String?);
+    if (current.any((t) => t['status'] == 'pending')) return ('pending', null);
+    return (current.isEmpty ? null : 'printed', null);
   }
 
   Map<String, dynamic> _line(int itemId, int qty, String? note) {
@@ -253,6 +302,7 @@ class FakeBackend {
       'lines': [
         for (final l in lines) {...l, 'lineTotal': _chf(_lineTotal(l))},
       ],
+      'tickets': _ticketsJson(o),
     };
   }
 
@@ -289,6 +339,8 @@ class FakeBackend {
             'waiter': o['waiter'],
             'sentAt': o['sentAt'],
             'total': _orderJson(o)['total'],
+            'printStatus': _printStatus(o).$1,
+            'printError': _printStatus(o).$2,
           },
       ]);
     }
@@ -324,6 +376,23 @@ class FakeBackend {
         );
       }
       return _json(201, _orderJson(order));
+    }
+    final reprint = RegExp(r'^/orders/(\d+)/tickets/(\d+)/reprint$').firstMatch(path);
+    if (reprint != null && r.method == 'POST') {
+      final o = order(int.parse(reprint.group(1)!));
+      final original = (o['tickets'] as List).cast<Map<String, dynamic>>().firstWhere(
+        (t) => t['id'] == int.parse(reprint.group(2)!),
+      );
+      if (original['status'] == 'pending') return _problem(409, 'The ticket is still being printed');
+      final ticket = addTicket(
+        o,
+        type: original['type'] as String,
+        kind: 'reprint',
+        printer: original['printer'] as String? ?? 'Kitchen',
+        status: reprintStatus,
+        reprintOf: original['id'] as int,
+      );
+      return _json(201, {...ticket, 'reprinted': false});
     }
     final detail = RegExp(r'^/orders/(\d+)$').firstMatch(path);
     if (detail != null) {
@@ -365,6 +434,90 @@ class FakeBackend {
     }
     o['version'] = (o['version'] as int) + 1;
     return _json(200, _orderJson(o));
+  }
+
+  // --- printers
+
+  final printers = <Map<String, dynamic>>[];
+  int _nextPrinterId = 700;
+
+  /// Printer error per printer name for test prints; absent means success.
+  final testPrintErrors = <String, String>{};
+
+  /// Names of printers a test print was sent to.
+  final testPrints = <String>[];
+
+  int addPrinter(String name, String type, {String address = '192.168.1.50', bool active = true}) {
+    final id = _nextPrinterId++;
+    printers.add({
+      'id': id,
+      'name': name,
+      'address': address,
+      'deviceId': 'local_printer',
+      'type': type,
+      'active': active,
+    });
+    return id;
+  }
+
+  http.Response? _printerRoutes(http.Request r, Map<String, dynamic>? body) {
+    final path = r.url.path;
+    if (path == '/admin/printers' && r.method == 'GET') return _json(200, printers);
+    final match = RegExp(r'^/admin/printers(?:/(\d+))?(/test)?$').firstMatch(path);
+    if (match == null) return null;
+    final id = match.group(1) == null ? null : int.parse(match.group(1)!);
+    if (match.group(2) != null) {
+      final p = printers.firstWhere((p) => p['id'] == id);
+      testPrints.add(p['name'] as String);
+      final error = testPrintErrors[p['name']];
+      return _json(200, {'success': error == null, 'error': error});
+    }
+    final errors = <String, String>{};
+    if ((body!['name'] as String).isEmpty) errors['name'] = 'must not be blank';
+    if ((body['address'] as String).isEmpty) errors['address'] = 'must not be blank';
+    final other = printers.where(
+      (p) => p['id'] != id && p['active'] == true && p['type'] == body['type'],
+    );
+    if (body['active'] == true && other.isNotEmpty) {
+      errors['type'] = '"${other.first['name']}" already prints ${body['type']}. Deactivate it first.';
+    }
+    if (errors.isNotEmpty) return _problem(400, 'Validation failed', errors);
+    if (id == null) {
+      final newId = addPrinter(
+        body['name'] as String,
+        body['type'] as String,
+        address: body['address'] as String,
+        active: body['active'] as bool,
+      );
+      return _json(201, printers.firstWhere((p) => p['id'] == newId));
+    }
+    final p = printers.firstWhere((p) => p['id'] == id)..addAll(body);
+    return _json(200, p);
+  }
+
+  // --- export
+
+  /// Query parameters of every export request.
+  final exportQueries = <Map<String, String>>[];
+
+  http.Response? _exportRoute(http.Request r, FakeStaff me) {
+    if (r.url.path != '/exports/orders.csv') return null;
+    if (me.role != 'admin') return _problem(403, 'Forbidden');
+    final q = r.url.queryParameters;
+    exportQueries.add(q);
+    if (q['from']!.compareTo(q['to']!) > 0) {
+      return _problem(400, 'Validation failed', {
+        'from': 'The start date must not be after the end date',
+      });
+    }
+    return http.Response.bytes(
+      utf8.encode('\uFEFForder_id,table\r\n'),
+      200,
+      headers: {
+        'content-type': 'text/csv; charset=UTF-8',
+        'content-disposition': 'attachment; filename="orders_${q['from']}_${q['to']}.csv"',
+      },
+    );
   }
 
   // --- tables
@@ -464,6 +617,10 @@ class FakeBackend {
     if (path.startsWith('/admin/') && me.role != 'admin') {
       return _problem(403, 'Forbidden');
     }
+    final exportResponse = _exportRoute(r, me);
+    if (exportResponse != null) return exportResponse;
+    final printerResponse = _printerRoutes(r, body);
+    if (printerResponse != null) return printerResponse;
     final tableResponse = _tableRoutes(r, body);
     if (tableResponse != null) return tableResponse;
     final menuResponse = _menuRoutes(r, body);

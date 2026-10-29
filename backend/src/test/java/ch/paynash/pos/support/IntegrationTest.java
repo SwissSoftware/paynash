@@ -19,14 +19,15 @@ import com.jayway.jsonpath.JsonPath;
 
 import ch.paynash.pos.TestcontainersConfiguration;
 import ch.paynash.pos.auth.PinService;
+import ch.paynash.pos.printing.PrintJobs;
 import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.staff.StaffRepository;
 
 /**
  * Full application against PostgreSQL (Testcontainers), with empty tables, a controllable clock, and a ticket printing
- * hook that only records.
+ * hook that records what it is handed. The print worker does not run on its own; tests call it.
  */
-@SpringBootTest(properties = "pos.image-dir=target/test-images")
+@SpringBootTest(properties = { "pos.image-dir=target/test-images", "pos.printing.worker-enabled=false" })
 @AutoConfigureMockMvc
 @Import({ TestcontainersConfiguration.class, IntegrationTest.TestBeans.class })
 public abstract class IntegrationTest {
@@ -42,8 +43,8 @@ public abstract class IntegrationTest {
 
 		@Bean
 		@Primary
-		RecordingTicketPrinting recordingTicketPrinting() {
-			return new RecordingTicketPrinting();
+		RecordingTicketPrinting recordingTicketPrinting(PrintJobs printJobs) {
+			return new RecordingTicketPrinting(printJobs);
 		}
 
 	}
@@ -69,6 +70,8 @@ public abstract class IntegrationTest {
 	@BeforeEach
 	void resetState() {
 		jdbc.sql("DELETE FROM idempotency_key").update();
+		jdbc.sql("DELETE FROM print_job").update();
+		jdbc.sql("DELETE FROM printer").update();
 		jdbc.sql("DELETE FROM order_line").update();
 		jdbc.sql("DELETE FROM orders").update();
 		jdbc.sql("DELETE FROM dining_table").update();

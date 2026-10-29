@@ -9,6 +9,8 @@ class OrderSummary {
     required this.waiter,
     required this.sentAt,
     required this.total,
+    this.printStatus,
+    this.printError,
   });
 
   factory OrderSummary.fromJson(Map<String, dynamic> json) => OrderSummary(
@@ -18,6 +20,11 @@ class OrderSummary {
     waiter: json['waiter'] as String,
     sentAt: DateTime.parse(json['sentAt'] as String),
     total: json['total'] as String,
+    printStatus: switch (json['printStatus'] as String?) {
+      final s? => TicketStatus.values.byName(s),
+      null => null,
+    },
+    printError: json['printError'] as String?,
   );
 
   final int id;
@@ -26,9 +33,57 @@ class OrderSummary {
   final String waiter;
   final DateTime sentAt;
   final String total;
+
+  /// The state of the order's tickets, ignoring tickets that were reprinted:
+  /// failed if any failed (with [printError]), else pending if any is still
+  /// printing. Null when the order has no tickets.
+  final TicketStatus? printStatus;
+  final String? printError;
 }
 
 enum OrderStatus { sent, voided }
+
+enum TicketStatus { pending, printed, failed }
+
+enum TicketKind { normal, storno, reprint }
+
+/// A production ticket of an order (kitchen or bar).
+class TicketData {
+  TicketData({
+    required this.id,
+    required this.kind,
+    required this.type,
+    required this.status,
+    required this.reprinted,
+    this.printer,
+    this.error,
+  });
+
+  factory TicketData.fromJson(Map<String, dynamic> json) => TicketData(
+    id: json['id'] as int,
+    kind: TicketKind.values.byName(json['kind'] as String),
+    type: ItemType.values.byName(json['type'] as String),
+    printer: json['printer'] as String?,
+    status: TicketStatus.values.byName(json['status'] as String),
+    error: json['error'] as String?,
+    reprinted: json['reprinted'] as bool? ?? false,
+  );
+
+  final int id;
+  final TicketKind kind;
+  final ItemType type;
+
+  /// Null when no printer was configured for [type].
+  final String? printer;
+  final TicketStatus status;
+  final String? error;
+
+  /// A later reprint replaces this ticket.
+  final bool reprinted;
+
+  /// Failed and not yet replaced by a reprint: staff need to act.
+  bool get needsAttention => status == TicketStatus.failed && !reprinted;
+}
 
 enum LineStatus { sent, cancelled }
 
@@ -82,6 +137,7 @@ class OrderData {
     required this.version,
     required this.total,
     required this.lines,
+    this.tickets = const [],
     this.voidReason,
   });
 
@@ -97,6 +153,10 @@ class OrderData {
     lines: [
       for (final l in json['lines'] as List) OrderLineData.fromJson(l as Map<String, dynamic>),
     ],
+    tickets: [
+      for (final t in json['tickets'] as List? ?? const [])
+        TicketData.fromJson(t as Map<String, dynamic>),
+    ],
   );
 
   final int id;
@@ -109,6 +169,7 @@ class OrderData {
   final int version;
   final String total;
   final List<OrderLineData> lines;
+  final List<TicketData> tickets;
   final String? voidReason;
 }
 
