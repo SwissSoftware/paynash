@@ -3,6 +3,7 @@
 -- converted.
 DELETE FROM idempotency_key;
 DELETE FROM order_line;
+DELETE FROM order_round;
 DELETE FROM orders;
 
 DROP INDEX orders_open_table_uq;
