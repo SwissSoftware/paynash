@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Delivers sent order rounds to the right production station. Drink lines print on the bar's Epson TM-m30III and food lines print on the kitchen's Epson TM-m30III. Failures are detected, retried, and visible to staff.
+Delivers sent orders to the right production station. Drink lines print on the bar's Epson TM-m30III and food lines print on the kitchen's Epson TM-m30III. Failures are detected, retried, and visible to staff.
 
 ## ADDED Requirements
 
@@ -18,29 +18,29 @@ Admins SHALL configure printers. Each printer has a name, a network address (IP 
 - **THEN** the printer prints a test ticket, and the admin sees whether it succeeded or failed
 
 #### Scenario: Missing routing
-- **WHEN** no active printer is assigned to `food` and a round with food lines is sent
-- **THEN** the round is still saved, the food ticket is marked failed with "no printer configured", and the waiter is warned
+- **WHEN** no active printer is assigned to `food` and an order with food lines is sent
+- **THEN** the order is still saved, the food ticket is marked failed with "no printer configured", and the waiter is warned
 
 ### Requirement: Route lines by type
-For each sent round, the system SHALL create at most one ticket per printer. The drink printer's ticket SHALL contain only the round's drink lines, and the food printer's ticket SHALL contain only its food lines. No ticket SHALL be created for a type with no lines in the round.
+For each sent order, the system SHALL create at most one ticket per printer. The drink printer's ticket SHALL contain only the order's drink lines, and the food printer's ticket SHALL contain only its food lines. No ticket SHALL be created for a type with no lines in the order.
 
-#### Scenario: Mixed round
-- **WHEN** a round contains 2 × "Cola" and 1 × "Margherita"
+#### Scenario: Mixed order
+- **WHEN** an order contains 2 × "Cola" and 1 × "Margherita"
 - **THEN** the bar printer prints one ticket with "2 × Cola", and the kitchen printer prints one ticket with "1 × Margherita"
 
 #### Scenario: Drinks only
-- **WHEN** a round contains only drinks
+- **WHEN** an order contains only drinks
 - **THEN** only the bar printer prints, and the kitchen printer receives nothing
 
 ### Requirement: Ticket content
-Each production ticket SHALL show, in large readable text, the table label, the waiter name, the date and time sent, the round number, and each line with quantity, item name, and note. After printing, the ticket SHALL be cut. Prices are not required on production tickets.
+Each production ticket SHALL show, in large readable text, the table label, the waiter name, the date and time sent, the order number, and each line with quantity, item name, and note. After printing, the ticket SHALL be cut. Prices are not required on production tickets.
 
 #### Scenario: Ticket with note
 - **WHEN** a line "1 × Margherita" with the note "extra spicy" is printed
-- **THEN** the ticket shows the note directly below that line, together with the table, waiter, time, and round number
+- **THEN** the ticket shows the note directly below that line, together with the table, waiter, time, and order number
 
 ### Requirement: Cancellation tickets
-When a sent line is cancelled, the system SHALL print a ticket marked clearly as a cancellation ("STORNO") on the printer of the line's type. The ticket SHALL show the table, the quantity, the item, and the reason.
+When a sent line is cancelled, including when its order is voided, the system SHALL print a ticket marked clearly as a cancellation ("STORNO") on the printer of the line's type. The ticket SHALL show the table, the order number, the quantity, the item, and the reason. Voiding an order SHALL create at most one cancellation ticket per printer.
 
 #### Scenario: Cancel drink
 - **WHEN** a sent "Beer" line is cancelled
@@ -50,8 +50,8 @@ When a sent line is cancelled, the system SHALL print a ticket marked clearly as
 Each ticket SHALL have a status: `pending`, `printed`, or `failed`. The system SHALL retry failed deliveries automatically for at least 60 seconds. A ticket that still fails SHALL be marked `failed` and shown to waiters and admins with the printer's error (e.g. offline, paper end, cover open). Printing SHALL NOT block or undo saving the order.
 
 #### Scenario: Printer offline
-- **WHEN** the kitchen printer is unreachable while a round is sent
-- **THEN** the order is saved, the system retries, and if it still fails the kitchen ticket is shown as failed with "printer offline" in the waiter app
+- **WHEN** the kitchen printer is unreachable while an order is sent
+- **THEN** the order is saved, the system retries, and if it still fails the kitchen ticket is shown as failed with "printer offline" in the order history
 
 #### Scenario: Paper end
 - **WHEN** the printer reports paper end

@@ -3,10 +3,10 @@ package ch.paynash.pos.order;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
-/** Lines start unsent and can be edited; sending makes them read-only; sent lines can only be cancelled. */
+/** Lines are sent together with their order and can afterwards only be cancelled. */
 public enum LineStatus {
 
-	UNSENT, SENT, CANCELLED;
+	SENT, CANCELLED;
 
 	@JsonValue
 	public String dbValue() {

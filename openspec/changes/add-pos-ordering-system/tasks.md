@@ -34,7 +34,7 @@
 ## 4. Order taking (spec: order-taking)
 
 - [x] 4.1 Add migrations for `order`, `order_round`, and `order_line` (snapshot fields, status, version) plus a partial unique index for one open order per table. Verify with a test: a second open order for the same table fails at the DB level
-- [x] 4.2 Add idempotency middleware (`Idempotency-Key`, 24 h storage) for the mutating order/payment endpoints. Verify with a test: the same key twice → identical result, only one effect
+- [x] 4.2 Add idempotency middleware (`Idempotency-Key`, 24 h storage) for the mutating order endpoints. Verify with a test: the same key twice → identical result, only one effect
 - [x] 4.3 Implement "open order" (open or return the existing one), table label validation, and assigning the waiter. Verify with tests for both cases
 - [x] 4.4 Implement adding, changing, and removing unsent lines with snapshot fields, qty 1–99, and a note ≤ 140 characters. Reject inactive items. Verify with tests including a price change after adding (snapshot stays)
 - [x] 4.5 Implement "send round": mark unsent lines as sent, create a round, and in the same transaction create print jobs (hook for 5.2). Do nothing if there are no unsent lines. Verify with tests: first round, follow-up round prints only new lines, double request → one round
@@ -43,31 +43,38 @@
 - [x] 4.8 Handle concurrency: optimistic locking on state changes and parallel line additions. Verify with a concurrency test (two parallel additions → both lines exist)
 - [x] 4.9 Build the app order screen: choose a table, tap tiles to add, change quantity and note, send button with status, show cancelling. Build the order overview with 3 s polling on visible screens and a "no connection" banner. Verify with widget tests and a manual test with two browser windows on the same table (sync ≤ 5 s)
 
+## 4R. Rework order lifecycle (spec: order-taking; design D4)
+
+Orders are no longer kept open per table: the waiter builds the order on the device and sends it in one go, after which it is final and shown in the order history. There is no payment. Tasks 4.1–4.9 built the original open-order flow and stay checked as history.
+
+- [x] 4R.1 Add migration `V6__order_lifecycle.sql`: delete existing dev orders (no production data exists), drop the one-open-order-per-table index and `order_round` (with `order_line.round_id`), rename `opened_by`/`opened_at` to `sent_by`/`sent_at`, restrict order status to `sent|voided` and line status to `sent|cancelled`, and drop the line `version`. Verify with a migration test: several sent orders for one table are allowed, and status `open` and `unsent` are rejected
+- [x] 4R.2 Replace the open/add/update/remove line and send-round endpoints with one `POST /orders` (table label, at least one line with menu item, qty 1–99, note ≤ 140) that validates everything, rejects the whole order with the list of inactive items, saves it as `sent` with snapshot fields, and creates the print jobs in the same transaction; idempotent via `Idempotency-Key`. Verify with tests: valid send, empty order → 400, invalid label → 400, inactive item → 409 naming it and nothing saved, price snapshot, two orders for the same table, double request → one order
+- [x] 4R.3 Move "cancel line" to `/admin/orders/{id}/lines/{lineId}/cancel` and make void work on sent orders: void cancels all remaining lines and prints cancellation tickets; both lock the order row. Verify with tests: admin cancel, waiter → 403, cancel twice → 409, void prints STORNO only for lines not already cancelled, void twice → 409, cancel on voided order → 409
+- [x] 4R.4 Replace the open orders list with the order history `GET /orders?date=YYYY-MM-DD` (default today in Europe/Zurich, newest first, with table, waiter, sent time, total, status) and keep `GET /orders/{id}` with lines and their status. Verify with tests: today only, other date, day boundary in local time, total excludes cancelled lines
+- [x] 4R.5 Rework the app order screen: choose a table, build the draft locally (add tiles, change quantity and note, remove), send in one request with an idempotency key, reset after success, keep the draft after a failure, and drop inactive items named by the server. Verify with widget tests for send success, send failure, and inactive item
+- [x] 4R.6 Replace the open orders overview with an order history screen (date picker, 3 s polling while visible, "no connection" banner) and an order detail view; admins see cancel line and void with a reason. Verify with widget tests for the list, the detail, and that waiters do not see cancel/void
+- [x] 4R.7 Remove the obsolete order code and tests (rounds, unsent lines, open-order lookup, concurrency on open orders) and update the OpenAPI docs. Verify that the backend and app test suites pass and the OpenAPI test validates
+
 ## 5. Ticket printing (spec: ticket-printing)
 
 - [ ] 5.1 Add migrations for `printer` (name, address, device ID, type, active) and `print_job` (printer, content, kind normal/storno/reprint, status, attempts, last_error). Implement printer admin endpoints with the rule "exactly one active printer per type". Verify with tests
-- [ ] 5.2 Implement ticket rendering: split a round by type into at most one ticket per printer. Content: table, waiter, time, round number, qty × name, note; STORNO and REPRINT variants. Verify with snapshot tests of the rendered tickets for a mixed round, drinks only, storno, and reprint
+- [ ] 5.2 Implement ticket rendering: split an order by type into at most one ticket per printer. Content: table, waiter, time, order number, qty × name, note; STORNO (single line and voided order, at most one per printer) and REPRINT variants. Verify with snapshot tests of the rendered tickets for a mixed order, drinks only, storno, void, and reprint
 - [ ] 5.3 Implement the ePOS-Print XML builder (text, double size, feed, `cut`) and the HTTP client against `/cgi-bin/epos/service.cgi`, including response parsing and error-code mapping (offline, paper end, cover open, ...). Verify with unit tests against recorded sample responses
 - [ ] 5.4 Implement the print worker: sequential per printer, retry with backoff ≥ 60 s, `printed`/`failed`, no automatic retry after confirmed printing or an unclear outcome. Verify with tests against a fake printer server (offline → failed after ≥ 60 s; success → exactly 1 request)
 - [ ] 5.5 Handle a missing printer for a type: the job fails immediately with "no printer configured" and the order is saved anyway. Verify with a test
-- [ ] 5.6 Add endpoints for test print and reprint (new job with the REPRINT flag) and expose ticket status per order/round for the app. Verify with tests
-- [ ] 5.7 Build the app UI: show print status per round, a failed-ticket warning with the error, and a reprint button. Build the admin UI: printer configuration and test print. Verify through the UI with a fake printer
+- [ ] 5.6 Add endpoints for test print and reprint (new job with the REPRINT flag) and expose ticket status per order for the app. Verify with tests
+- [ ] 5.7 Build the app UI: show print status per order in the order history, a failed-ticket warning with the error, and a reprint button. Build the admin UI: printer configuration and test print. Verify through the UI with a fake printer
 - [ ] 5.8 Run a hardware test with a real Epson TM-m30III: enable ePOS-Print, run a test print, check umlauts (ä, ö, ü, é), the cut, and readability; test paper end and cover open. Verify with photos/notes of the test tickets in `docs/printing.md`, and adjust the code page/transliteration if needed
 - [ ] 5.9 Document printer setup (static IP, enable ePOS, device ID) in `docs/printing.md` and verify that the steps can be reproduced on a reset printer
 
-## 6. Payment (spec: order-payment)
+## 6. Payment (removed)
 
-- [ ] 6.1 Add a migration for `payment` (order, method cash/card, amount in Rappen, cash given, waiter, paid_at, reversed_at, reversed_by, reverse_reason). Verify with a migration test
-- [ ] 6.2 Implement total calculation in Rappen excluding cancelled lines. Verify with unit tests including a cancellation (2×4.50 + cancelled 18.00 = 9.00)
-- [ ] 6.3 Implement the "settle" endpoint: preconditions (status open, no unsent lines, total > 0, cash ≥ total), idempotent, sets `paid`. Verify with tests for every rejection case and for a double request
-- [ ] 6.4 Make paid orders read-only (reject adding lines and cancelling) and add admin "reopen" with a reason that marks the payment reversed. Verify with tests
-- [ ] 6.5 Build the app checkout screen: show the total, choose cash/card, enter the cash received with change shown, and confirm. Verify with a widget test (50.00 received for 27.00 → 23.00 change)
-- [ ] 6.6 Build the admin UI for reopening a paid order with a reason, and verify it through the UI
+Removed: there is no payment in the app (see proposal). The section number is kept so later task numbers stay stable.
 
 ## 7. CSV export (spec: order-export)
 
 - [ ] 7.1 Implement the CSV writer: UTF-8 BOM, comma separator, RFC 4180 quoting, amounts with a dot and two decimals, ISO 8601 with offset (Europe/Zurich). Verify with unit tests for commas, quotes, line breaks in notes, and umlauts
-- [ ] 7.2 Add the export endpoint (admin only, `from`/`to` inclusive by local date, status filter with default paid, header-only when empty, filename with the date range, streaming). Verify with tests: one day, empty period, from > to → 400, waiter → 403, cancelled line → line_total 0.00
+- [ ] 7.2 Add the export endpoint (admin only, `from`/`to` inclusive by local date, status filter `sent`/`voided`/all with default sent, filtered by `sent_at`, header-only when empty, filename with the date range, streaming). Verify with tests: one day, empty period, from > to → 400, waiter → 403, cancelled line → line_total 0.00
 - [ ] 7.3 Build the admin UI export dialog (date range, status) with download. Verify manually that the downloaded file opens in Excel with the columns intact and correct umlauts
 
 ## 8. Deployment and operations
@@ -78,14 +85,14 @@
 
 ## 9. End-to-end integration
 
-- [ ] 9.1 Run the full flow on site with the web UI and real printers: admin creates items with images, two waiters in two browser sessions take a mixed order for the same table, the bar printer receives only drinks and the kitchen printer only food, a follow-up round and a cancellation are printed, the order is settled by cash, and the CSV export contains all lines correctly. Record the result in `docs/acceptance.md`
-- [ ] 9.2 Run the failure test on site: unplug the kitchen printer, send a round, see the failed status in the app, reconnect it, and reprint with "REPRINT". Verify that no ticket is lost or duplicated, and record the result in `docs/acceptance.md`
+- [ ] 9.1 Run the full flow on site with the web UI and real printers: admin creates items with images, two waiters in two browser sessions take a mixed order for the same table, the bar printer receives only drinks and the kitchen printer only food, a follow-up order for the same table is sent and printed, both orders appear in the order history, an admin cancels a line and the STORNO ticket is printed, and the CSV export contains all lines correctly. Record the result in `docs/acceptance.md`
+- [ ] 9.2 Run the failure test on site: unplug the kitchen printer, send an order, see the failed status in the app, reconnect it, and reprint with "REPRINT". Verify that no ticket is lost or duplicated, and record the result in `docs/acceptance.md`
 
 ## 10. Later: mobile apps (Android and iOS)
 
 - [ ] 10.1 Add the Android and iOS targets to the Flutter app with a configurable backend URL. Verify that the app starts on an Android emulator and an iOS simulator against the HTTPS backend from 8.1
 - [ ] 10.2 Implement the token storage interface with secure storage (Keychain/Keystore). Verify login/logout manually on Android and iOS
-- [ ] 10.3 Check the menu tiles, order screen, print status, and checkout on both platforms, including the image cache. Verify manually on both platforms with two devices on the same table (sync ≤ 5 s)
+- [ ] 10.3 Check the menu tiles, order screen, order history, and print status on both platforms, including the image cache. Verify manually on both platforms that an order sent on one device appears in the history on the other (≤ 5 s)
 - [ ] 10.4 Configure the iOS build (NSLocalNetworkUsageDescription, ATS-compatible HTTPS) and Android release signing, and build for the distribution channel (TestFlight/internal track). Verify that the app installs from that channel on a real device
 - [ ] 10.5 Repeat the on-site flow from 9.1 with a waiter on Android and a waiter on iOS, and record the result in `docs/acceptance.md`
 

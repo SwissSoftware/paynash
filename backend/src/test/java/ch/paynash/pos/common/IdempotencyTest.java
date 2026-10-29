@@ -15,8 +15,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.jayway.jsonpath.JsonPath;
-
 import ch.paynash.pos.menu.ItemType;
 import ch.paynash.pos.menu.MenuRepository;
 import ch.paynash.pos.staff.Role;
@@ -31,24 +29,19 @@ class IdempotencyTest extends IntegrationTest {
 
 	private long cola;
 
-	private String linesPath;
-
 	@BeforeEach
 	void setUp() throws Exception {
 		anna = waiterToken();
 		cola = menu.insertItem(menu.insertCategory("Drinks"), "Cola", ItemType.DRINK, 450, null, true);
-		String order = request(anna, "/orders", null, json("tableLabel", "12")).andReturn().getResponse()
-			.getContentAsString();
-		linesPath = "/orders/" + JsonPath.read(order, "$.id") + "/lines";
 	}
 
 	@Test
 	void sameKeyTwiceGivesIdenticalResultAndOneEffect() throws Exception {
-		var first = request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 1)).andExpect(status().isCreated())
+		var first = request(anna, "/orders", "k1", order(1)).andExpect(status().isCreated())
 			.andExpect(header().doesNotExist(IdempotencyFilter.REPLAYED_HEADER))
 			.andReturn()
 			.getResponse();
-		var second = request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 1)).andExpect(status().isCreated())
+		var second = request(anna, "/orders", "k1", order(1)).andExpect(status().isCreated())
 			.andExpect(header().string(IdempotencyFilter.REPLAYED_HEADER, "true"))
 			.andReturn()
 			.getResponse();
@@ -60,16 +53,16 @@ class IdempotencyTest extends IntegrationTest {
 
 	@Test
 	void differentKeysAreDifferentRequests() throws Exception {
-		request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 1));
-		request(anna, linesPath, "k2", json("menuItemId", cola, "qty", 1));
-		request(anna, linesPath, null, json("menuItemId", cola, "qty", 1));
+		request(anna, "/orders", "k1", order(1));
+		request(anna, "/orders", "k2", order(1));
+		request(anna, "/orders", null, order(1));
 		assertThat(lineCount()).isEqualTo(3);
 	}
 
 	@Test
 	void keyReusedForADifferentRequestIsRejected() throws Exception {
-		request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 1));
-		request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 2)).andExpect(status().isUnprocessableContent());
+		request(anna, "/orders", "k1", order(1));
+		request(anna, "/orders", "k1", order(2)).andExpect(status().isUnprocessableContent());
 		assertThat(lineCount()).isEqualTo(1);
 	}
 
@@ -77,37 +70,37 @@ class IdempotencyTest extends IntegrationTest {
 	void keysAreScopedPerStaffMember() throws Exception {
 		createStaff("ben", Role.WAITER, "2222");
 		String ben = login("ben", "2222");
-		request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 1));
-		request(ben, linesPath, "k1", json("menuItemId", cola, "qty", 1))
+		request(anna, "/orders", "k1", order(1));
+		request(ben, "/orders", "k1", order(1))
 			.andExpect(header().doesNotExist(IdempotencyFilter.REPLAYED_HEADER));
 		assertThat(lineCount()).isEqualTo(2);
 	}
 
 	@Test
 	void errorResponsesAreReplayedToo() throws Exception {
-		request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 0)).andExpect(status().isBadRequest());
-		request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 0)).andExpect(status().isBadRequest())
+		request(anna, "/orders", "k1", order(0)).andExpect(status().isBadRequest());
+		request(anna, "/orders", "k1", order(0)).andExpect(status().isBadRequest())
 			.andExpect(header().string(IdempotencyFilter.REPLAYED_HEADER, "true"));
 	}
 
 	@Test
 	void requestStillInProgressAnswers409() throws Exception {
 		long staffId = staffRepository.findByUsername("anna").orElseThrow().id();
-		String body = json("menuItemId", cola, "qty", 1);
-		request(anna, linesPath, "k1", body);
+		String body = order(1);
+		request(anna, "/orders", "k1", body);
 		// Simulate the first request still running: same fingerprint, no stored response yet.
 		jdbc.sql("UPDATE idempotency_key SET response_status = NULL WHERE staff_id = ?").param(staffId).update();
 
-		request(anna, linesPath, "k1", body).andExpect(status().isConflict());
+		request(anna, "/orders", "k1", body).andExpect(status().isConflict());
 		assertThat(lineCount()).isEqualTo(1);
 	}
 
 	@Test
 	void keysExpireAfter24Hours() throws Exception {
-		request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 1));
+		request(anna, "/orders", "k1", order(1));
 		clock.advance(Duration.ofHours(24).plusMinutes(1));
 		anna = login("anna", "4711"); // the 12 h session has expired as well
-		request(anna, linesPath, "k1", json("menuItemId", cola, "qty", 1))
+		request(anna, "/orders", "k1", order(1))
 			.andExpect(header().doesNotExist(IdempotencyFilter.REPLAYED_HEADER));
 		assertThat(lineCount()).isEqualTo(2);
 		// The expired key was cleaned up and replaced.
@@ -130,6 +123,11 @@ class IdempotencyTest extends IntegrationTest {
 			request.header(IdempotencyFilter.HEADER, key);
 		}
 		return mvc.perform(request);
+	}
+
+	/** A send request for table 12 with one Cola line. */
+	private String order(int qty) {
+		return "{\"tableLabel\":\"12\",\"lines\":[" + json("menuItemId", cola, "qty", qty) + "]}";
 	}
 
 	private long lineCount() {

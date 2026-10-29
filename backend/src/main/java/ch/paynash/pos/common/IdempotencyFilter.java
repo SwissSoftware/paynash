@@ -29,7 +29,7 @@ import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Makes mutating order and payment requests safe to retry (design D5). The first request with a given
+ * Makes mutating order requests safe to retry (design D5). The first request with a given
  * {@code Idempotency-Key} is processed and its response stored for 24 hours; a repeat of the same request gets the
  * stored response without running again. Keys are scoped per staff member. Requests without the header are processed
  * normally.

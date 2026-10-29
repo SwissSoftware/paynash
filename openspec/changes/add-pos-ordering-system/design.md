@@ -23,7 +23,7 @@ These constraints shape the design:
 - Offline order taking without a connection to the backend. The app shows "no connection" and blocks sending.
 - Multiple locations, multiple tenants, or cloud hosting in v1.
 - Using the Epson SDK on the device (direct printing from the phone was rejected).
-- Card-terminal integration, fiscal receipts, and split payments.
+- Payment of any kind (cash, card, settling bills), card-terminal integration, and fiscal receipts.
 
 ## Decisions
 
@@ -50,7 +50,7 @@ The backend, database, and image storage run as containers (Docker Compose) on a
 - *Alternative*: a cloud backend with a local "print bridge" agent. This is more complex (two deployables, a tunnel) and depends on the internet connection. It stays an option for later (Epson Server Direct Print would also allow it).
 
 ### D3 – Printing via a transactional outbox and per-printer worker
-When a round is sent or a line is cancelled, the same DB transaction writes one `print_job` row per affected printer, with the rendered ticket content, `status = pending`, and `attempts = 0`. A background worker processes jobs **sequentially per printer**:
+When an order is sent, a line is cancelled, or an order is voided, the same DB transaction writes one `print_job` row per affected printer, with the rendered ticket content, `status = pending`, and `attempts = 0`. A background worker processes jobs **sequentially per printer**:
 1. It builds an ePOS-Print XML document (`<epos-print>`: text with double size for the table/header, lines, feed, `<cut type="feed"/>`).
 2. It sends `POST http(s)://<printer>/cgi-bin/epos/service.cgi?devid=<deviceId>&timeout=<ms>` with a SOAP envelope.
 3. It parses the response's `success` and `code` attributes and maps the codes, for example `EPTR_REC_EMPTY` → paper end, `EPTR_COVER_OPEN` → cover open, and timeout or connection refused → offline.
@@ -60,16 +60,20 @@ When a round is sent or a line is cancelled, the same DB transaction writes one 
 - *Reprint* creates a new job with the same content and the "REPRINT" flag.
 - *Encoding*: German umlauts must print correctly. Use the `lang`/code page settings of the ePOS text element and verify with a test ticket (see Risks).
 
-### D4 – Order model and concurrency
-- `order` (id, table_label, status `open|paid|voided`, opened_by, opened_at, version)
-- `order_line` (id, order_id, menu_item_id, name_snapshot, type_snapshot, category_snapshot, unit_price_snapshot, qty, note, status `unsent|sent|cancelled`, round_id, cancel_reason)
-- `order_round` (id, order_id, number, sent_by, sent_at)
-- A partial unique index on `order(table_label) WHERE status = 'open'` enforces at most one open order per table.
-- Adding a line inserts a new row, so concurrent additions do not conflict. State changes (send, settle, void) use optimistic locking on `order.version` or `SELECT ... FOR UPDATE`.
-- Clients refresh the open order and the order list by **polling every 3 seconds** while the screen is visible. This is simpler and more robust on WiFi than WebSockets, and it meets the 5-second requirement. SSE can be added later.
+### D4 – Order model: draft on the device, one-step send
+*Revised: orders are no longer kept open per table and there is no payment. The original model (open order per table, rounds, `open|paid|voided`) was implemented first and is reworked in tasks section 4R.*
+- The draft order (table label and lines) lives only in the app. Sending posts the whole order in one request: `POST /orders` with `{tableLabel, lines[{menuItemId, qty, note}]}` and an `Idempotency-Key`.
+- In one transaction the server validates the label and lines, rejects the whole order if an item is inactive (listing them), copies the snapshot fields, saves the order as `sent`, and writes the print jobs (D3).
+- `orders` (id, table_label, status `sent|voided`, sent_by, sent_at, voided_by, voided_at, void_reason, version)
+- `order_line` (id, order_id, menu_item_id, name_snapshot, type_snapshot, category_snapshot, unit_price_snapshot, qty, note, status `sent|cancelled`, cancelled_by, cancelled_at, cancel_reason)
+- The order id is the order number printed on tickets. There are no rounds and no unique index per table: a table can have any number of sent orders.
+- Sent orders are immutable except cancel line and void (admin only). Both lock the order row (`SELECT ... FOR UPDATE`) so a cancel and a void cannot both print STORNO for the same line.
+- *Why a client-side draft*: no server state exists for half-built orders, so there is nothing to clean up, no concurrent-edit conflicts, and a retry of the single send is safe through D5. *Trade-off*: a draft is lost if the browser tab is reloaded before sending; acceptable for an order of a few lines.
+- *Alternative*: a server-side `draft` state. Rejected because it brings back the cleanup and sync problems the change removes.
+- The order history (`GET /orders?date=YYYY-MM-DD`, default today in Europe/Zurich) is polled **every 3 seconds** while visible, which meets the 5-second requirement. ETag avoids resending unchanged data.
 
 ### D5 – Idempotency
-The client sends an `Idempotency-Key` (UUID) header for "send round", "settle", "cancel line", and "add line". The server stores key → result for 24 hours and returns the stored result for repeated requests. This covers double-taps and network retries (spec: send and settle).
+The client sends an `Idempotency-Key` (UUID) header for "send order", "cancel line", and "void order". The server stores key → result for 24 hours and returns the stored result for repeated requests. This covers double-taps and network retries (spec: double-tap send).
 
 ### D6 – Money as integer Rappen
 All amounts are stored and calculated as integers (Rappen). They are formatted to `0.00` only at the API/CSV boundary. This avoids floating-point errors.
@@ -86,10 +90,10 @@ The upload goes to the backend (multipart). The backend validates the MIME type 
 - *Alternative*: S3/MinIO. This is unnecessary for one location; it can be added later behind a storage interface.
 
 ### D9 – CSV export
-A server-side streaming endpoint (`GET /exports/orders.csv?from&to&status`) writes a UTF-8 BOM and RFC 4180 escaping, with columns exactly as in the `order-export` spec. Date filtering on `opened_at` uses Europe/Zurich. The export reads from the snapshot fields of the lines, so later menu changes do not alter the result.
+A server-side streaming endpoint (`GET /exports/orders.csv?from&to&status`) writes a UTF-8 BOM and RFC 4180 escaping, with columns exactly as in the `order-export` spec. Date filtering on `sent_at` uses Europe/Zurich. The export reads from the snapshot fields of the lines, so later menu changes do not alter the result.
 
 ### D10 – Admin UI
-Admin functions (menu, categories, images, staff, printers, test print, export, void/reopen) are the admin area of the same Flutter web app, shown only to the admin role. *Why web*: image upload and CSV download are much more convenient on a desktop. Admins can still take orders in the waiter screens (web now, mobile app later), because the admin role includes all waiter permissions.
+Admin functions (menu, categories, images, staff, printers, test print, export, and cancel/void in the order history) are the admin area of the same Flutter web app, shown only to the admin role. *Why web*: image upload and CSV download are much more convenient on a desktop. Admins can still take orders in the waiter screens (web now, mobile app later), because the admin role includes all waiter permissions.
 
 ### D11 – Transport security
 In phase 1 the web UI and backend run on localhost over plain HTTP, which is acceptable because nothing leaves the machine. HTTPS is introduced with the on-site deployment (task 8.1) and is required before any device other than localhost, including the mobile apps, connects. From then on the app talks to the backend over HTTPS, using a local hostname (e.g. `pos.local` or a real subdomain with a DNS-01 certificate pointing to the LAN IP). This avoids iOS App Transport Security exceptions and sending PINs in plain text. The iOS app declares `NSLocalNetworkUsageDescription`. ePOS to the printers uses HTTPS where the printer supports it, otherwise HTTP within the closed LAN.
@@ -103,7 +107,7 @@ In phase 1 the web UI and backend run on localhost over plain HTTP, which is acc
 - [Polling load with many devices] → The number of devices is small (< 20). Poll only on visible screens; ETag/`If-None-Match` prevents unnecessary data transfer.
 - [Mobile apps come later, so platform issues (iOS local network permission, ATS, secure storage) surface late] → Keep platform-specific code behind small interfaces, keep all rules in the backend, and run the Flutter app on Android/iOS early in the mobile phase (tasks section 10).
 - [Flutter Web is less polished than a classic web app for admin forms and file upload] → Acceptable for an internal admin UI on a desktop; image upload and CSV download are checked through the UI in tasks 3.6 and 7.3.
-- [Legal/fiscal requirements for a POS (e.g. tamper-proof records)] → Out of scope for v1. Reopening and cancelling do not delete history (audit fields). Check before productive use.
+- [Legal/fiscal requirements for a POS (e.g. tamper-proof records)] → Out of scope for v1. Cancelling and voiding do not delete history (audit fields). Check before productive use.
 
 ## Migration Plan
 

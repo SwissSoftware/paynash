@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 
 public enum OrderStatus {
 
-	OPEN, PAID, VOIDED;
+	SENT, VOIDED;
 
 	@JsonValue
 	public String dbValue() {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../admin/tables_api.dart';
 import '../api/api_client.dart';
 import '../menu/item_visuals.dart';
 import '../menu/menu_api.dart';
@@ -8,205 +10,183 @@ import '../menu/menu_models.dart';
 import 'order_api.dart';
 import 'order_models.dart';
 import 'polling.dart';
+import 'text_dialog.dart';
 
-enum _SendState { idle, sending, sent }
+final _tableLabel = RegExp(r'^[A-Za-z0-9]{1,10}$');
 
-/// Taking an order for one table: tap menu tiles to add lines, adjust
-/// quantity and notes, send the unsent lines as a round, and cancel sent lines.
+/// Taking an order: pick or type the table, tap menu tiles to build the order on
+/// this device, adjust quantities and notes, and send it in one go. After a
+/// successful send the screen is empty again; the order is in the history.
 class OrderScreen extends StatefulWidget {
   const OrderScreen({
     super.key,
-    required this.orderId,
     required this.orderApi,
     required this.menuApi,
+    required this.tablesApi,
   });
 
-  final int orderId;
   final OrderApi orderApi;
   final MenuApi menuApi;
+  final TablesApi tablesApi;
 
   @override
   State<OrderScreen> createState() => _OrderScreenState();
 }
 
 class _OrderScreenState extends State<OrderScreen> with Polling {
-  OrderData? _order;
+  final _table = TextEditingController();
+  final _lines = <DraftLine>[];
   List<MenuCategoryData>? _menu;
+  List<TableData> _tables = const [];
   String? _error;
+  String? _tableError;
+
+  /// Why the last send failed. Shown next to the send button rather than in a
+  /// snack bar, which would cover the button needed to try again.
+  String? _sendError;
   bool _offline = false;
-  _SendState _sendState = _SendState.idle;
-  int? _sentRound;
+  bool _sending = false;
 
-  /// Changes run one after another, each based on the result of the previous
-  /// one, so quick taps do not race each other.
-  Future<void> _queue = Future.value();
-
-  /// Incremented whenever a change is applied; a poll that started earlier
-  /// is discarded so it cannot show an older state.
-  int _generation = 0;
+  /// Kept while the draft is unchanged, so retrying a send whose answer was
+  /// lost cannot create a second order (design D5).
+  String? _sendKey;
 
   @override
   void initState() {
     super.initState();
     poll();
-    _loadMenu();
   }
 
   @override
+  void dispose() {
+    _table.dispose();
+    super.dispose();
+  }
+
+  /// Keeps the menu and the tables current and notices when the server is
+  /// unreachable.
+  @override
   Future<void> poll() async {
-    final generation = _generation;
     try {
-      final order = await widget.orderApi.load(widget.orderId);
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _order = order;
-        _offline = false;
-        _error = null;
-      });
+      final menu = await widget.menuApi.load();
+      final tables = await widget.tablesApi.active();
+      if (mounted) {
+        setState(() {
+          _menu = menu;
+          _tables = tables;
+          _offline = false;
+          _error = null;
+        });
+      }
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() {
         _offline = e.isConnectionError;
-        if (!e.isConnectionError || _order == null) _error = e.message;
+        if (!e.isConnectionError || _menu == null) _error = e.message;
       });
     }
   }
 
-  Future<void> _loadMenu() async {
-    try {
-      final menu = await widget.menuApi.load();
-      if (mounted) setState(() => _menu = menu);
-    } on ApiError catch (e) {
-      if (mounted && _menu == null) setState(() => _error = e.message);
-    }
+  /// Applies a change to the draft. Any change means a new order for the
+  /// server, so it needs a new idempotency key.
+  void _edit(VoidCallback change) {
+    // The confirmation of the previous order would cover the send button.
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    setState(() {
+      change();
+      _sendKey = null;
+      _sendError = null;
+    });
   }
 
-  void _apply(OrderData order) {
-    _generation++;
-    setState(() {
-      _order = order;
-      _offline = false;
-      if (order.hasUnsentLines) {
-        _sendState = _SendState.idle;
-        _sentRound = null;
+  void _addItem(MenuItemData item) {
+    _edit(() {
+      // Tapping a tile again raises the quantity of its line, unless that line
+      // has a note (then it is a different request from the guest).
+      final existing = _lines.where((l) => l.item.id == item.id && l.note == null && l.qty < 99);
+      if (existing.isEmpty) {
+        _lines.add(DraftLine(item));
+      } else {
+        existing.first.qty++;
       }
     });
   }
 
-  /// Runs [step] after the changes queued before it.
-  Future<void> _enqueue(Future<void> Function() step) =>
-      // An unexpected error must not block the changes queued after it.
-      _queue = _queue.then((_) => step()).catchError((Object _) {});
-
-  /// Runs a change based on the latest order and reports failures.
-  Future<void> _change(Future<OrderData> Function(OrderData current) op) => _enqueue(() async {
-    final current = _order;
-    if (current == null || !mounted) return;
-    try {
-      _apply(await op(current));
-    } on ApiError catch (e) {
-      await _handleError(e);
-    }
-  });
-
-  Future<void> _handleError(ApiError e) async {
-    if (!mounted) return;
-    if (e.isConnectionError) {
-      setState(() => _offline = true);
-    } else if (e.details['menuItemInactive'] == true) {
-      await _loadMenu();
-    } else if (e.status == 409 || e.status == 404) {
-      // Changed on another device meanwhile: show the current state.
-      await poll();
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    }
-  }
-
-  void _addItem(MenuItemData item) {
-    _change((order) {
-      // Tapping a tile again raises the quantity of its unsent line, unless
-      // that line has a note (then it is a different request from the guest).
-      final existing = order.lines.where(
-        (l) =>
-            l.status == LineStatus.unsent &&
-            l.menuItemId == item.id &&
-            l.note == null &&
-            l.qty < 99,
-      );
-      return existing.isEmpty
-          ? widget.orderApi.addLine(order.id, item.id)
-          : widget.orderApi.updateLine(order.id, existing.first, qty: existing.first.qty + 1);
+  void _pickTable(TableData table) {
+    _edit(() {
+      _table.text = table.number;
+      _tableError = null;
     });
   }
 
-  void _setQty(OrderLineData line, int qty) {
-    _change((order) => widget.orderApi.updateLine(order.id, line, qty: qty, note: line.note));
-  }
-
-  void _remove(OrderLineData line) {
-    _change((order) => widget.orderApi.removeLine(order.id, line.id));
-  }
-
-  Future<void> _editNote(OrderLineData line) async {
+  Future<void> _editNote(DraftLine line) async {
     final note = await showDialog<String>(
       context: context,
-      builder: (_) => _TextDialog(
-        title: 'Note for ${line.name}',
+      builder: (_) => TextDialog(
+        title: 'Note for ${line.item.name}',
         label: 'Note',
         initial: line.note,
         action: 'Save',
       ),
     );
     if (note == null) return;
-    _change((order) {
-      final current = order.lines.firstWhere((l) => l.id == line.id, orElse: () => line);
-      return widget.orderApi.updateLine(order.id, current, qty: current.qty, note: note);
-    });
-  }
-
-  Future<void> _cancel(OrderLineData line) async {
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (_) => _TextDialog(
-        title: 'Cancel ${line.qty} × ${line.name}?',
-        label: 'Reason',
-        action: 'Cancel line',
-        required: true,
-      ),
-    );
-    if (reason == null) return;
-    _change((order) => widget.orderApi.cancelLine(order.id, line.id, reason));
+    _edit(() => line.note = note.isEmpty ? null : note);
   }
 
   Future<void> _send() async {
-    setState(() => _sendState = _SendState.sending);
-    await _enqueue(() async {
-      try {
-        final result = await widget.orderApi.send(widget.orderId);
-        _apply(result.order);
-        if (mounted) {
-          setState(() {
-            _sendState = _SendState.sent;
-            _sentRound = result.round;
-          });
-        }
-      } on ApiError catch (e) {
-        if (mounted) setState(() => _sendState = _SendState.idle);
-        await _handleError(e);
-      }
+    final table = _table.text.trim();
+    if (!_tableLabel.hasMatch(table)) {
+      setState(() => _tableError = '1 to 10 letters or digits');
+      return;
+    }
+    setState(() {
+      _tableError = null;
+      _sendError = null;
+      _sending = true;
     });
+    final key = _sendKey ??= newIdempotencyKey();
+    try {
+      final order = await widget.orderApi.send(table, List.of(_lines), key);
+      if (!mounted) return;
+      setState(() {
+        _lines.clear();
+        _table.clear();
+        _sendKey = null;
+        _offline = false;
+      });
+      _message('Order for table ${order.tableLabel} sent');
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      final inactive = (e.details['inactiveMenuItemIds'] as List?)?.cast<int>();
+      if (inactive != null) {
+        _edit(() => _lines.removeWhere((l) => inactive.contains(l.item.id)));
+        await poll();
+      }
+      setState(() {
+        if (e.isConnectionError) _offline = true;
+        if (e.fieldErrors['tableLabel'] != null) {
+          _tableError = e.fieldErrors['tableLabel'];
+        } else {
+          _sendError = e.isConnectionError
+              ? 'Not sent: no connection. Please try again.'
+              : e.message;
+        }
+      });
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
+
+  void _message(String text) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   @override
   Widget build(BuildContext context) {
-    final order = _order;
     final menu = _menu;
     final wide = MediaQuery.sizeOf(context).width >= 720;
 
     Widget body;
-    if (_error != null && (order == null || menu == null)) {
+    if (_error != null && menu == null) {
       body = Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -216,33 +196,36 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
               onPressed: () {
                 setState(() => _error = null);
                 poll();
-                _loadMenu();
               },
               child: const Text('Retry'),
             ),
           ],
         ),
       );
-    } else if (order == null || menu == null) {
+    } else if (menu == null) {
       body = const Center(child: CircularProgressIndicator());
     } else {
-      final editable = order.status == OrderStatus.open;
       final browser = MenuBrowser(
         categories: menu,
         imageUrl: widget.menuApi.imageUrl,
-        onItemTap: editable ? _addItem : null,
+        onItemTap: _sending ? null : _addItem,
       );
-      final panel = _OrderPanel(
-        order: order,
-        editable: editable,
+      final panel = _DraftPanel(
+        compact: !wide,
+        table: _table,
+        tables: _tables,
+        onPickTable: _pickTable,
+        // A different table is a different order, like a changed line.
+        onTableChanged: () => _edit(() {}),
+        tableError: _tableError,
+        sendError: _sendError,
+        lines: _lines,
         offline: _offline,
-        sendState: _sendState,
-        sentRound: _sentRound,
+        sending: _sending,
         onSend: _send,
-        onQty: _setQty,
-        onRemove: _remove,
+        onQty: (line, qty) => _edit(() => line.qty = qty),
+        onRemove: (line) => _edit(() => _lines.remove(line)),
         onNote: _editNote,
-        onCancel: _cancel,
       );
       body = wide
           ? Row(
@@ -262,279 +245,272 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
             );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(order == null ? 'Order' : 'Table ${order.tableLabel}'),
-        actions: [
-          if (order != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(child: Text('Opened by ${order.waiter}')),
-            ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (_offline) const NoConnectionBanner(),
-          if (order != null && order.status != OrderStatus.open)
-            MaterialBanner(
-              key: const Key('order-closed'),
-              content: Text('This order is ${order.status.name} and can no longer be changed.'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  child: const Text('Back'),
-                ),
-              ],
-            ),
-          Expanded(child: body),
-        ],
-      ),
+    return Column(
+      children: [
+        if (_offline) const NoConnectionBanner(),
+        Expanded(child: body),
+      ],
     );
   }
 }
 
-class _OrderPanel extends StatelessWidget {
-  const _OrderPanel({
-    required this.order,
-    required this.editable,
+class _DraftPanel extends StatelessWidget {
+  const _DraftPanel({
+    required this.compact,
+    required this.table,
+    required this.tables,
+    required this.onPickTable,
+    required this.onTableChanged,
+    required this.tableError,
+    required this.sendError,
+    required this.lines,
     required this.offline,
-    required this.sendState,
-    required this.sentRound,
+    required this.sending,
     required this.onSend,
     required this.onQty,
     required this.onRemove,
     required this.onNote,
-    required this.onCancel,
   });
 
-  final OrderData order;
-  final bool editable;
+  /// Phone layout: the panel is short, so the table field and the table
+  /// chips share one row.
+  final bool compact;
+  final TextEditingController table;
+  final List<TableData> tables;
+  final void Function(TableData table) onPickTable;
+  final VoidCallback onTableChanged;
+  final String? tableError;
+  final String? sendError;
+  final List<DraftLine> lines;
   final bool offline;
-  final _SendState sendState;
-  final int? sentRound;
+  final bool sending;
   final VoidCallback onSend;
-  final void Function(OrderLineData line, int qty) onQty;
-  final void Function(OrderLineData line) onRemove;
-  final void Function(OrderLineData line) onNote;
-  final void Function(OrderLineData line) onCancel;
+  final void Function(DraftLine line, int qty) onQty;
+  final void Function(DraftLine line) onRemove;
+  final void Function(DraftLine line) onNote;
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    // Unsent lines first, as they are the ones being worked on.
-    final lines = [
-      ...order.lines.where((l) => l.status == LineStatus.unsent),
-      ...order.lines.where((l) => l.status != LineStatus.unsent),
-    ];
+    final total = lines.fold(0, (sum, l) => sum + l.totalRappen);
+    final count = lines.fold(0, (sum, l) => sum + l.qty);
+    final tableField = TextField(
+      key: const Key('table-input'),
+      controller: table,
+      enabled: !sending,
+      onChanged: (_) => onTableChanged(),
+      decoration: InputDecoration(
+        labelText: 'Table',
+        errorText: tableError,
+        prefixIcon: compact ? null : const Icon(Icons.table_restaurant),
+        border: const OutlineInputBorder(),
+      ),
+      textCapitalization: TextCapitalization.characters,
+      inputFormatters: [LengthLimitingTextInputFormatter(10)],
+    );
+    final picker = tables.isEmpty
+        ? null
+        : _TablePicker(
+            tables: tables,
+            selected: table,
+            singleRow: compact,
+            onPick: sending ? null : onPickTable,
+          );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (compact && picker != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 0, 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 110, child: tableField),
+                const SizedBox(width: 8),
+                Expanded(child: picker),
+              ],
+            ),
+          )
+        else ...[
+          ?picker,
+          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: tableField),
+        ],
         Expanded(
           child: lines.isEmpty
               ? const Center(child: Text('Tap items to add them.'))
               : ListView(
                   children: [
-                    for (final line in lines)
-                      _LineTile(
+                    for (final (i, line) in lines.indexed)
+                      _DraftLineTile(
+                        index: i,
                         line: line,
-                        editable: editable,
+                        enabled: !sending,
                         onQty: onQty,
                         onRemove: onRemove,
                         onNote: onNote,
-                        onCancel: onCancel,
                       ),
                   ],
                 ),
         ),
         const Divider(height: 1),
+        if (sendError != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Text(
+              sendError!,
+              key: const Key('send-error'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Row(
             children: [
               Text('Total', style: text.titleMedium),
               const Spacer(),
-              Text('CHF ${order.total}', key: const Key('order-total'), style: text.titleLarge),
+              Text('CHF ${chf(total)}', key: const Key('order-total'), style: text.titleLarge),
             ],
           ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: SizedBox(height: 52, child: _sendButton()),
+          child: SizedBox(
+            height: 52,
+            child: FilledButton.icon(
+              key: const Key('order-send'),
+              onPressed: !offline && !sending && lines.isNotEmpty ? onSend : null,
+              icon: sending
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send),
+              label: Text(
+                sending ? 'Sending…' : (lines.isEmpty ? 'Nothing to send' : 'Send ($count)'),
+              ),
+            ),
+          ),
         ),
       ],
     );
   }
-
-  Widget _sendButton() {
-    final count = order.unsentCount;
-    final canSend = editable && !offline && count > 0 && sendState != _SendState.sending;
-    final (Widget icon, String label) = switch (sendState) {
-      _SendState.sending => (
-        const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-        'Sending…',
-      ),
-      _SendState.sent when count == 0 => (
-        const Icon(Icons.check_circle),
-        sentRound == null ? 'Nothing to send' : 'Sent · round $sentRound',
-      ),
-      _ => (const Icon(Icons.send), count == 0 ? 'Nothing to send' : 'Send ($count)'),
-    };
-    return FilledButton.icon(
-      key: const Key('order-send'),
-      onPressed: canSend ? onSend : null,
-      icon: icon,
-      label: Text(label),
-    );
-  }
 }
 
-class _LineTile extends StatelessWidget {
-  const _LineTile({
-    required this.line,
-    required this.editable,
-    required this.onQty,
-    required this.onRemove,
-    required this.onNote,
-    required this.onCancel,
+/// The configured tables as chips. The table field stays as the fallback;
+/// typing a table's number selects its chip as well. Many tables scroll
+/// instead of pushing the order lines and the send button off the screen.
+class _TablePicker extends StatelessWidget {
+  const _TablePicker({
+    required this.tables,
+    required this.selected,
+    required this.singleRow,
+    required this.onPick,
   });
 
-  final OrderLineData line;
-  final bool editable;
-  final void Function(OrderLineData line, int qty) onQty;
-  final void Function(OrderLineData line) onRemove;
-  final void Function(OrderLineData line) onNote;
-  final void Function(OrderLineData line) onCancel;
+  final List<TableData> tables;
+  final TextEditingController selected;
+
+  /// One horizontally scrolling row (phone) instead of wrapping rows.
+  final bool singleRow;
+  final void Function(TableData table)? onPick;
 
   @override
   Widget build(BuildContext context) {
-    final cancelled = line.status == LineStatus.cancelled;
-    final subtitle = [
-      if (line.note != null) line.note!,
-      if (line.status == LineStatus.sent) 'Sent · round ${line.roundNumber}',
-      if (cancelled) 'Cancelled: ${line.cancelReason}',
-    ].join('\n');
-
-    return ListTile(
-      key: Key('line-${line.id}'),
-      leading: ItemTypeBadge(line.type),
-      title: Text(
-        line.status == LineStatus.unsent ? line.name : '${line.qty} × ${line.name}',
-        style: cancelled
-            ? const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey)
-            : null,
-      ),
-      subtitle: subtitle.isEmpty ? null : Text(subtitle),
-      isThreeLine: subtitle.contains('\n'),
-      trailing: switch (line.status) {
-        LineStatus.unsent => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              key: Key('line-dec-${line.id}'),
-              tooltip: 'One less',
-              icon: const Icon(Icons.remove_circle_outline),
-              onPressed: editable && line.qty > 1 ? () => onQty(line, line.qty - 1) : null,
+    final text = Theme.of(context).textTheme;
+    return ValueListenableBuilder(
+      valueListenable: selected,
+      builder: (context, value, _) {
+        final current = value.text.trim().toUpperCase();
+        final chips = [
+          for (final t in tables)
+            ChoiceChip(
+              key: Key('table-chip-${t.number}'),
+              selected: t.number == current,
+              showCheckmark: false,
+              onSelected: onPick == null ? null : (_) => onPick!(t),
+              label: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(t.number, style: text.titleMedium),
+                  if (t.name != null) Text(t.name!, style: text.labelSmall),
+                ],
+              ),
             ),
-            Text('${line.qty}', key: Key('line-qty-${line.id}')),
-            IconButton(
-              key: Key('line-inc-${line.id}'),
-              tooltip: 'One more',
-              icon: const Icon(Icons.add_circle_outline),
-              onPressed: editable && line.qty < 99 ? () => onQty(line, line.qty + 1) : null,
-            ),
-            IconButton(
-              key: Key('line-note-${line.id}'),
-              tooltip: 'Note',
-              icon: const Icon(Icons.edit_note),
-              onPressed: editable ? () => onNote(line) : null,
-            ),
-            IconButton(
-              key: Key('line-remove-${line.id}'),
-              tooltip: 'Remove',
-              icon: const Icon(Icons.delete_outline),
-              onPressed: editable ? () => onRemove(line) : null,
-            ),
-          ],
-        ),
-        LineStatus.sent => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(line.lineTotal),
-            IconButton(
-              key: Key('line-cancel-${line.id}'),
-              tooltip: 'Cancel line',
-              icon: const Icon(Icons.block),
-              onPressed: editable ? () => onCancel(line) : null,
-            ),
-          ],
-        ),
-        LineStatus.cancelled => Text(line.lineTotal),
+        ];
+        if (singleRow) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.only(right: 16),
+            child: Row(spacing: 8, children: chips),
+          );
+        }
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 150),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Wrap(spacing: 8, runSpacing: 8, children: chips),
+          ),
+        );
       },
     );
   }
 }
 
-/// Asks for a note or a reason (at most 140 characters). Returns the text, or
-/// null when dismissed.
-class _TextDialog extends StatefulWidget {
-  const _TextDialog({
-    required this.title,
-    required this.label,
-    required this.action,
-    this.initial,
-    this.required = false,
+class _DraftLineTile extends StatelessWidget {
+  const _DraftLineTile({
+    required this.index,
+    required this.line,
+    required this.enabled,
+    required this.onQty,
+    required this.onRemove,
+    required this.onNote,
   });
 
-  final String title;
-  final String label;
-  final String action;
-  final String? initial;
-  final bool required;
-
-  @override
-  State<_TextDialog> createState() => _TextDialogState();
-}
-
-class _TextDialogState extends State<_TextDialog> {
-  late final _text = TextEditingController(text: widget.initial);
-  String? _error;
-
-  @override
-  void dispose() {
-    _text.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final value = _text.text.trim();
-    if (widget.required && value.isEmpty) {
-      setState(() => _error = '${widget.label} is required');
-      return;
-    }
-    Navigator.of(context).pop(value);
-  }
+  /// Position in the draft; draft lines have no server id yet.
+  final int index;
+  final DraftLine line;
+  final bool enabled;
+  final void Function(DraftLine line, int qty) onQty;
+  final void Function(DraftLine line) onRemove;
+  final void Function(DraftLine line) onNote;
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        key: const Key('dialog-text'),
-        controller: _text,
-        autofocus: true,
-        maxLength: 140,
-        decoration: InputDecoration(labelText: widget.label, errorText: _error),
-        onSubmitted: (_) => _submit(),
+    return ListTile(
+      key: Key('draft-line-$index'),
+      leading: ItemTypeBadge(line.item.type),
+      title: Text(line.item.name),
+      subtitle: line.note == null ? null : Text(line.note!),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            key: Key('line-dec-$index'),
+            tooltip: 'One less',
+            icon: const Icon(Icons.remove_circle_outline),
+            onPressed: enabled && line.qty > 1 ? () => onQty(line, line.qty - 1) : null,
+          ),
+          Text('${line.qty}', key: Key('line-qty-$index')),
+          IconButton(
+            key: Key('line-inc-$index'),
+            tooltip: 'One more',
+            icon: const Icon(Icons.add_circle_outline),
+            onPressed: enabled && line.qty < 99 ? () => onQty(line, line.qty + 1) : null,
+          ),
+          IconButton(
+            key: Key('line-note-$index'),
+            tooltip: 'Note',
+            icon: const Icon(Icons.edit_note),
+            onPressed: enabled ? () => onNote(line) : null,
+          ),
+          IconButton(
+            key: Key('line-remove-$index'),
+            tooltip: 'Remove',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: enabled ? () => onRemove(line) : null,
+          ),
+        ],
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Back')),
-        FilledButton(
-          key: const Key('dialog-submit'),
-          onPressed: _submit,
-          child: Text(widget.action),
-        ),
-      ],
     );
   }
 }

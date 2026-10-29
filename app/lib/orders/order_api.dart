@@ -1,8 +1,8 @@
 import '../api/api_client.dart';
 import 'order_models.dart';
 
-/// Order taking. Adding, sending, and cancelling carry an idempotency key, so
-/// a retried request cannot add a line, round, or cancellation twice.
+/// Sending orders and reading the order history. Sending, cancelling, and
+/// voiding carry an idempotency key, so a retried request has one effect.
 class OrderApi {
   OrderApi(this.api);
 
@@ -11,14 +11,17 @@ class OrderApi {
   final _etags = <int, String>{};
   final _cached = <int, OrderData>{};
 
-  Future<List<OpenOrderSummary>> openOrders() async => [
-    for (final json in await api.get('/orders') as List)
-      OpenOrderSummary.fromJson(json as Map<String, dynamic>),
-  ];
-
-  /// Opens the table's order, or returns the one that is already open.
-  Future<OrderData> open(String tableLabel) async =>
-      _remember(await api.post('/orders', {'tableLabel': tableLabel}));
+  /// Orders sent on [day] (a local date), or today if null. Newest first.
+  Future<List<OrderSummary>> history([DateTime? day]) async {
+    final query = day == null
+        ? ''
+        : '?date=${day.year.toString().padLeft(4, '0')}-${day.month.toString().padLeft(2, '0')}'
+              '-${day.day.toString().padLeft(2, '0')}';
+    return [
+      for (final json in await api.get('/orders$query') as List)
+        OrderSummary.fromJson(json as Map<String, dynamic>),
+    ];
+  }
 
   /// Polls one order. Unchanged orders cost only a 304 response (ETag).
   Future<OrderData> load(int id) async {
@@ -28,42 +31,26 @@ class OrderApi {
     return _remember(result.body);
   }
 
-  Future<OrderData> addLine(int orderId, int menuItemId, {int qty = 1, String? note}) async =>
+  /// Sends the whole order. Pass the same [idempotencyKey] when retrying the
+  /// same draft, so an order that reached the server is not sent twice.
+  Future<OrderData> send(String tableLabel, List<DraftLine> lines, String idempotencyKey) async =>
       _remember(
-        await api.post('/orders/$orderId/lines', {
-          'menuItemId': menuItemId,
-          'qty': qty,
-          'note': note,
-        }, newIdempotencyKey()),
+        await api.post('/orders', {
+          'tableLabel': tableLabel,
+          'lines': [for (final l in lines) l.toJson()],
+        }, idempotencyKey),
       );
 
-  Future<OrderData> updateLine(
-    int orderId,
-    OrderLineData line, {
-    required int qty,
-    String? note,
-  }) async => _remember(
-    await api.put('/orders/$orderId/lines/${line.id}', {
-      'qty': qty,
-      'note': note,
-      'version': line.version,
-    }),
+  Future<OrderData> cancelLine(int orderId, int lineId, String reason) async => _remember(
+    await api.post('/admin/orders/$orderId/lines/$lineId/cancel', {
+      'reason': reason,
+    }, newIdempotencyKey()),
   );
 
-  Future<OrderData> removeLine(int orderId, int lineId) async =>
-      _remember(await api.delete('/orders/$orderId/lines/$lineId'));
-
-  /// Returns the round number, or null if there was nothing to send.
-  Future<({OrderData order, int? round})> send(int orderId) async {
-    final json =
-        await api.post('/orders/$orderId/send', null, newIdempotencyKey()) as Map<String, dynamic>;
-    final round = json['round'] as Map<String, dynamic>?;
-    return (order: _remember(json['order']), round: round?['number'] as int?);
-  }
-
-  Future<OrderData> cancelLine(int orderId, int lineId, String reason) async => _remember(
-    await api.post('/orders/$orderId/lines/$lineId/cancel', {
+  Future<OrderData> voidOrder(OrderData order, String reason) async => _remember(
+    await api.post('/admin/orders/${order.id}/void', {
       'reason': reason,
+      'version': order.version,
     }, newIdempotencyKey()),
   );
 

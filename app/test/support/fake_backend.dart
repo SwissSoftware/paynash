@@ -184,30 +184,40 @@ class FakeBackend {
   /// When true, every request fails as if the server were unreachable.
   bool offline = false;
 
+  /// The next this many sends are handled but their answers are lost, as on a
+  /// dropped WiFi connection.
+  int loseSendAnswers = 0;
+
   /// Method, path, and Idempotency-Key of every changing order request.
   final orderWrites = <({String method, String path, String? key})>[];
 
-  Map<String, dynamic> openOrder(String table, FakeStaff waiter, {int ageMinutes = 0}) {
+  /// Answers already given per idempotency key, as the real server replays them.
+  final _replies = <String, http.Response>{};
+
+  /// Saves a sent order, as another device would. [lines] are (item id, qty).
+  Map<String, dynamic> addSentOrder(
+    String table,
+    FakeStaff waiter,
+    List<(int, int)> lines, {
+    String sentAt = '2026-10-29T18:30:00Z',
+  }) {
     final order = {
       'id': _nextOrderId++,
       'tableLabel': table,
-      'status': 'open',
+      'status': 'sent',
       'waiter': waiter.displayName,
-      'ageMinutes': ageMinutes,
+      'sentAt': sentAt,
       'version': 0,
-      'lines': <Map<String, dynamic>>[],
-      'rounds': <int>[],
+      'voidReason': null,
+      'lines': <Map<String, dynamic>>[for (final (itemId, qty) in lines) _line(itemId, qty, null)],
     };
     orders.add(order);
     return order;
   }
 
-  Map<String, dynamic> order(int id) => orders.firstWhere((o) => o['id'] == id);
-
-  /// Adds a line as another device would.
-  Map<String, dynamic> addOrderLine(int orderId, int itemId, {int qty = 1, String? note}) {
+  Map<String, dynamic> _line(int itemId, int qty, String? note) {
     final item = items.firstWhere((i) => i['id'] == itemId);
-    final line = {
+    return {
       'id': _nextLineId++,
       'menuItemId': itemId,
       'name': item['name'],
@@ -215,16 +225,12 @@ class FakeBackend {
       'unitPrice': item['price'],
       'qty': qty,
       'note': note,
-      'status': 'unsent',
-      'roundNumber': null,
-      'version': 0,
+      'status': 'sent',
       'cancelReason': null,
     };
-    final order = this.order(orderId);
-    (order['lines'] as List).add(line);
-    order['version'] = (order['version'] as int) + 1;
-    return line;
   }
+
+  Map<String, dynamic> order(int id) => orders.firstWhere((o) => o['id'] == id);
 
   static int _rappen(String price) => int.parse(price.replaceAll('.', ''));
 
@@ -240,9 +246,10 @@ class FakeBackend {
       'tableLabel': o['tableLabel'],
       'status': o['status'],
       'waiter': o['waiter'],
+      'sentAt': o['sentAt'],
       'version': o['version'],
+      'voidReason': o['voidReason'],
       'total': _chf(lines.fold(0, (sum, l) => sum + _lineTotal(l))),
-      'hasUnsentLines': lines.any((l) => l['status'] == 'unsent'),
       'lines': [
         for (final l in lines) {...l, 'lineTotal': _chf(_lineTotal(l))},
       ],
@@ -251,35 +258,76 @@ class FakeBackend {
 
   http.Response? _orderRoutes(http.Request r, Map<String, dynamic>? body, FakeStaff me) {
     final path = r.url.path;
-    if (!path.startsWith('/orders')) return null;
-    if (r.method != 'GET') {
-      orderWrites.add((method: r.method, path: path, key: r.headers['Idempotency-Key']));
+    if (!path.startsWith('/orders') && !path.startsWith('/admin/orders')) return null;
+    final key = r.headers['Idempotency-Key'];
+    if (r.method == 'GET') return _orderRoute(r, body, me);
+    orderWrites.add((method: r.method, path: path, key: key));
+    final replyKey = '${me.id}:$key';
+    final response = key != null && _replies.containsKey(replyKey)
+        ? _replies[replyKey]
+        : _orderRoute(r, body, me);
+    if (key != null && response != null) _replies[replyKey] = response;
+    if (path == '/orders' && loseSendAnswers > 0) {
+      loseSendAnswers--;
+      throw http.ClientException('Connection lost', r.url);
     }
+    return response;
+  }
+
+  http.Response? _orderRoute(http.Request r, Map<String, dynamic>? body, FakeStaff me) {
+    final path = r.url.path;
     if (path == '/orders' && r.method == 'GET') {
+      final date = r.url.queryParameters['date'];
       return _json(200, [
-        for (final o in orders.where((o) => o['status'] == 'open'))
+        for (final o in orders.reversed.where(
+          (o) => date == null || (o['sentAt'] as String).startsWith(date),
+        ))
           {
             'id': o['id'],
             'tableLabel': o['tableLabel'],
+            'status': o['status'],
             'waiter': o['waiter'],
+            'sentAt': o['sentAt'],
             'total': _orderJson(o)['total'],
-            'ageMinutes': o['ageMinutes'],
-            'unsentLines': (o['lines'] as List).where((l) => l['status'] == 'unsent').length,
           },
       ]);
     }
     if (path == '/orders' && r.method == 'POST') {
       final label = (body!['tableLabel'] as String).trim().toUpperCase();
-      final existing = orders.where((o) => o['tableLabel'] == label && o['status'] == 'open');
-      if (existing.isNotEmpty) return _json(200, _orderJson(existing.first));
-      return _json(201, _orderJson(openOrder(label, me)));
+      if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(label)) {
+        return _json(400, {
+          'status': 400,
+          'detail': 'Validation failed',
+          'errors': {'tableLabel': 'Table must be 1 to 10 letters or digits'},
+        });
+      }
+      final lines = (body['lines'] as List).cast<Map<String, dynamic>>();
+      final inactive = [for (final l in lines) items.firstWhere((i) => i['id'] == l['menuItemId'])]
+          .where((i) => i['active'] != true)
+          .toSet();
+      if (inactive.isNotEmpty) {
+        return _json(409, {
+          'status': 409,
+          'detail': '${inactive.map((i) => i['name']).join(', ')} no longer available',
+          'inactiveMenuItemIds': [for (final i in inactive) i['id']],
+        });
+      }
+      final order = addSentOrder(label, me, const []);
+      for (final l in lines) {
+        final note = (l['note'] as String?)?.trim();
+        (order['lines'] as List).add(
+          _line(
+            l['menuItemId'] as int,
+            l['qty'] as int,
+            note == null || note.isEmpty ? null : note,
+          ),
+        );
+      }
+      return _json(201, _orderJson(order));
     }
-    final m = RegExp(r'^/orders/(\d+)(?:/(lines|send)(?:/(\d+)(/cancel)?)?)?$').firstMatch(path);
-    if (m == null) return null;
-    final o = order(int.parse(m.group(1)!));
-    final lines = (o['lines'] as List).cast<Map<String, dynamic>>();
-    if (m.group(2) == null) {
-      final json = jsonEncode(_orderJson(o));
+    final detail = RegExp(r'^/orders/(\d+)$').firstMatch(path);
+    if (detail != null) {
+      final json = jsonEncode(_orderJson(order(int.parse(detail.group(1)!))));
       final etag = '"${json.hashCode}"';
       if (r.headers['If-None-Match'] == etag) return http.Response('', 304);
       return http.Response(
@@ -288,74 +336,94 @@ class FakeBackend {
         headers: {'content-type': 'application/json; charset=utf-8', 'etag': etag},
       );
     }
-    if (o['status'] != 'open') {
+    final admin = RegExp(r'^/admin/orders/(\d+)/(?:lines/(\d+)/cancel|void)$').firstMatch(path);
+    if (admin == null) return null;
+    final o = order(int.parse(admin.group(1)!));
+    if (o['status'] != 'sent') {
       return _problem(409, 'The order is ${o['status']} and can no longer be changed');
     }
-    void changed() => o['version'] = (o['version'] as int) + 1;
-
-    if (m.group(2) == 'send') {
-      final unsent = lines.where((l) => l['status'] == 'unsent').toList();
-      if (unsent.isEmpty) return _json(200, {'round': null, 'order': _orderJson(o)});
-      final rounds = o['rounds'] as List<int>;
-      final number = rounds.length + 1;
-      rounds.add(number);
-      for (final l in unsent) {
-        l
-          ..['status'] = 'sent'
-          ..['roundNumber'] = number
-          ..['version'] = (l['version'] as int) + 1;
-      }
-      changed();
-      return _json(200, {
-        'round': {
-          'id': number,
-          'number': number,
-          'sentBy': me.displayName,
-          'sentAt': '2026-10-28T12:00:00Z',
-        },
-        'order': _orderJson(o),
-      });
-    }
-    if (m.group(3) == null && r.method == 'POST') {
-      final item = items.firstWhere((i) => i['id'] == body!['menuItemId']);
-      if (item['active'] != true) {
-        return _json(409, {
-          'status': 409,
-          'detail': '${item['name']} is no longer available',
-          'menuItemInactive': true,
-        });
-      }
-      addOrderLine(
-        o['id'] as int,
-        item['id'] as int,
-        qty: body!['qty'] as int,
-        note: body['note'] as String?,
-      );
-      return _json(201, _orderJson(o));
-    }
-    final line = lines.firstWhere((l) => l['id'] == int.parse(m.group(3)!));
-    if (m.group(4) != null) {
+    final lines = (o['lines'] as List).cast<Map<String, dynamic>>();
+    final reason = body!['reason'] as String;
+    if (admin.group(2) != null) {
+      final line = lines.firstWhere((l) => l['id'] == int.parse(admin.group(2)!));
+      if (line['status'] == 'cancelled') return _problem(409, 'The line is already cancelled');
       line
         ..['status'] = 'cancelled'
-        ..['cancelReason'] = body!['reason']
-        ..['version'] = (line['version'] as int) + 1;
-    } else if (r.method == 'DELETE') {
-      lines.remove(line);
+        ..['cancelReason'] = reason;
     } else {
-      if (body!['version'] != line['version']) {
-        return _problem(
-          409,
-          'The line was changed on another device. Please check it and try again.',
-        );
+      if (body['version'] != null && body['version'] != o['version']) {
+        return _problem(409, 'The order was changed meanwhile. Please check it and try again.');
       }
-      final note = (body['note'] as String?)?.trim();
-      line
-        ..['qty'] = body['qty']
-        ..['note'] = note == null || note.isEmpty ? null : note
-        ..['version'] = (line['version'] as int) + 1;
+      for (final l in lines.where((l) => l['status'] == 'sent')) {
+        l
+          ..['status'] = 'cancelled'
+          ..['cancelReason'] = reason;
+      }
+      o
+        ..['status'] = 'voided'
+        ..['voidReason'] = reason;
     }
-    changed();
+    o['version'] = (o['version'] as int) + 1;
     return _json(200, _orderJson(o));
+  }
+
+  // --- tables
+
+  final tables = <Map<String, dynamic>>[];
+  int _nextTableId = 500;
+
+  int addTable(String number, {String? name, bool active = true}) {
+    final id = _nextTableId++;
+    tables.add({'id': id, 'number': number, 'name': name, 'active': active});
+    return id;
+  }
+
+  /// Numeric numbers first in numeric order, then the rest, like the backend.
+  int _byNumber(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final x = a['number'] as String, y = b['number'] as String;
+    final nx = int.tryParse(x), ny = int.tryParse(y);
+    if (nx != null && ny != null) return nx.compareTo(ny);
+    if (nx != null) return -1;
+    if (ny != null) return 1;
+    return x.compareTo(y);
+  }
+
+  http.Response? _tableRoutes(http.Request r, Map<String, dynamic>? body) {
+    final path = r.url.path;
+    if (path == '/tables') {
+      return _json(200, [
+        for (final t in tables.where((t) => t['active'] == true).toList()..sort(_byNumber))
+          {'id': t['id'], 'number': t['number'], 'name': t['name']},
+      ]);
+    }
+    if (path == '/admin/tables' && r.method == 'GET') {
+      return _json(200, tables.toList()..sort(_byNumber));
+    }
+    final match = RegExp(r'^/admin/tables(?:/(\d+))?$').firstMatch(path);
+    if (match == null) return null;
+    final id = match.group(1) == null ? null : int.parse(match.group(1)!);
+    if (r.method == 'DELETE') {
+      tables.removeWhere((t) => t['id'] == id);
+      return http.Response('', 204);
+    }
+    final number = (body!['number'] as String? ?? '').trim().toUpperCase();
+    if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(number)) {
+      return _problem(400, 'Validation failed', {
+        'number': 'Number must be 1 to 10 letters or digits',
+      });
+    }
+    if (tables.any((t) => t['number'] == number && t['id'] != id)) {
+      return _problem(400, 'Validation failed', {'number': 'This number is already in use'});
+    }
+    if (id == null) {
+      final newId = addTable(number, name: body['name'] as String?);
+      return _json(201, tables.firstWhere((t) => t['id'] == newId));
+    }
+    final t = tables.firstWhere((t) => t['id'] == id)
+      ..['number'] = number
+      ..['name'] = body['name']
+      ..['active'] = body['active'];
+    return _json(200, t);
   }
 
   late final http.Client client = MockClient(_handle);
@@ -396,6 +464,8 @@ class FakeBackend {
     if (path.startsWith('/admin/') && me.role != 'admin') {
       return _problem(403, 'Forbidden');
     }
+    final tableResponse = _tableRoutes(r, body);
+    if (tableResponse != null) return tableResponse;
     final menuResponse = _menuRoutes(r, body);
     if (menuResponse != null) return menuResponse;
     final orderResponse = _orderRoutes(r, body, me);

@@ -10,7 +10,6 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.DuplicateKeyException;
 
 import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.support.IntegrationTest;
@@ -26,52 +25,57 @@ class OrderSchemaTest extends IntegrationTest {
 
 	@Test
 	void tablesHaveExpectedColumns() {
-		assertThat(columns("orders")).contains("id", "table_label", "status", "opened_by", "opened_at", "version");
-		assertThat(columns("order_round")).contains("id", "order_id", "number", "sent_by", "sent_at");
+		assertThat(columns("orders")).contains("id", "table_label", "status", "sent_by", "sent_at", "version")
+			.doesNotContain("opened_by", "opened_at");
 		assertThat(columns("order_line")).contains("id", "order_id", "menu_item_id", "name_snapshot",
-				"type_snapshot", "category_snapshot", "unit_price_snapshot", "qty", "note", "status", "round_id",
-				"cancel_reason", "version");
+				"type_snapshot", "category_snapshot", "unit_price_snapshot", "qty", "note", "status",
+				"cancel_reason")
+			.doesNotContain("round_id", "version");
+		assertThat(columns("order_round")).isEmpty();
 	}
 
 	@Test
-	void secondOpenOrderForSameTableFailsAtDbLevel() {
-		order("12", "open");
-		assertThatThrownBy(() -> order("12", "open")).isInstanceOf(DuplicateKeyException.class);
-	}
-
-	@Test
-	void closedOrdersDoNotBlockANewOpenOrder() {
-		order("12", "paid");
+	void aTableCanHaveSeveralSentOrders() {
+		order("12", "sent");
+		order("12", "sent");
 		order("12", "voided");
-		order("12", "open");
-		order("13", "open");
 	}
 
 	@Test
-	void statusMustBeKnown() {
-		assertThatThrownBy(() -> order("12", "closed")).isInstanceOf(DataIntegrityViolationException.class);
+	void orderStatusMustBeSentOrVoided() {
+		assertThatThrownBy(() -> order("12", "open")).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> order("12", "paid")).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void lineStatusMustBeSentOrCancelled() {
+		long order = order("12", "sent");
+		long item = menuItem();
+		assertThat(line(order, item, 1, "sent")).isPositive();
+		assertThatThrownBy(() -> line(order, item, 1, "unsent")).isInstanceOf(DataIntegrityViolationException.class);
 	}
 
 	@Test
 	void quantityMustBeBetween1And99() {
-		long order = order("12", "open");
+		long order = order("12", "sent");
 		long item = menuItem();
-		line(order, item, 1);
-		line(order, item, 99);
-		assertThatThrownBy(() -> line(order, item, 0)).isInstanceOf(DataIntegrityViolationException.class);
-		assertThatThrownBy(() -> line(order, item, 100)).isInstanceOf(DataIntegrityViolationException.class);
+		line(order, item, 1, "sent");
+		line(order, item, 99, "sent");
+		assertThatThrownBy(() -> line(order, item, 0, "sent")).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> line(order, item, 100, "sent")).isInstanceOf(DataIntegrityViolationException.class);
 	}
 
 	@Test
-	void sentLineNeedsARound() {
-		long order = order("12", "open");
-		long line = line(order, menuItem(), 1);
-		assertThatThrownBy(() -> jdbc.sql("UPDATE order_line SET status = 'sent' WHERE id = ?").param(line).update())
+	void cancelledLineNeedsAReason() {
+		long order = order("12", "sent");
+		long line = line(order, menuItem(), 1, "sent");
+		assertThatThrownBy(
+				() -> jdbc.sql("UPDATE order_line SET status = 'cancelled' WHERE id = ?").param(line).update())
 			.isInstanceOf(DataIntegrityViolationException.class);
 	}
 
 	private long order(String table, String status) {
-		return jdbc.sql("INSERT INTO orders (table_label, status, opened_by, opened_at) VALUES (?, ?, ?, ?) RETURNING id")
+		return jdbc.sql("INSERT INTO orders (table_label, status, sent_by, sent_at) VALUES (?, ?, ?, ?) RETURNING id")
 			.params(table, status, waiter, Timestamp.from(Instant.now()))
 			.query(Long.class)
 			.single();
@@ -88,12 +92,12 @@ class OrderSchemaTest extends IntegrationTest {
 			.single();
 	}
 
-	private long line(long order, long item, int qty) {
+	private long line(long order, long item, int qty, String status) {
 		return jdbc.sql("""
 				INSERT INTO order_line (order_id, menu_item_id, name_snapshot, type_snapshot, category_snapshot,
-				                        unit_price_snapshot, qty, added_by, added_at)
-				VALUES (?, ?, 'Cola', 'drink', 'Drinks', 450, ?, ?, ?) RETURNING id""")
-			.params(order, item, qty, waiter, Timestamp.from(Instant.now()))
+				                        unit_price_snapshot, qty, status)
+				VALUES (?, ?, 'Cola', 'drink', 'Drinks', 450, ?, ?) RETURNING id""")
+			.params(order, item, qty, status)
 			.query(Long.class)
 			.single();
 	}

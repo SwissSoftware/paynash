@@ -15,6 +15,11 @@ public class MutableClock extends Clock {
 		now = now.plus(duration);
 	}
 
+	/** Sets the time, e.g. {@code set("2026-10-29T18:30:00Z")}. */
+	public void set(String instant) {
+		now = Instant.parse(instant);
+	}
+
 	public void reset() {
 		now = Instant.now();
 	}

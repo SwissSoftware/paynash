@@ -3,6 +3,9 @@ package ch.paynash.pos.order;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -36,24 +39,34 @@ abstract class OrderTestSupport extends IntegrationTest {
 		return as(token, post(path).contentType(MediaType.APPLICATION_JSON).content(body));
 	}
 
-	protected long openOrder(String token, String table) throws Exception {
-		String body = postJson(token, "/orders", json("tableLabel", table)).andReturn().getResponse()
+	/** A line of a send request, e.g. {@code line(cola, 2)}. */
+	protected static String line(long itemId, int qty) {
+		return json("menuItemId", itemId, "qty", qty);
+	}
+
+	protected static String sendBody(String table, String... lines) {
+		return "{\"tableLabel\":\"" + table + "\",\"lines\":["
+				+ Arrays.stream(lines).collect(Collectors.joining(",")) + "]}";
+	}
+
+	protected ResultActions send(String token, String table, String... lines) throws Exception {
+		return postJson(token, "/orders", sendBody(table, lines));
+	}
+
+	/** Sends an order and returns its id. */
+	protected long sendOrder(String token, String table, String... lines) throws Exception {
+		String body = send(token, table, lines).andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
 			.getContentAsString();
 		return ((Number) JsonPath.read(body, "$.id")).longValue();
 	}
 
-	/** Adds a line and returns its id. */
-	protected long addLine(String token, long orderId, long itemId, int qty) throws Exception {
-		String body = postJson(token, "/orders/" + orderId + "/lines", json("menuItemId", itemId, "qty", qty))
-			.andExpect(status().isCreated())
-			.andReturn()
-			.getResponse()
-			.getContentAsString();
-		return ((Number) JsonPath.read(body, "$.lines[-1].id")).longValue();
-	}
-
-	protected ResultActions send(String token, long orderId) throws Exception {
-		return as(token, post("/orders/" + orderId + "/send"));
+	protected long lineId(long orderId, String name) {
+		return jdbc.sql("SELECT id FROM order_line WHERE order_id = ? AND name_snapshot = ?")
+			.params(orderId, name)
+			.query(Long.class)
+			.single();
 	}
 
 }
