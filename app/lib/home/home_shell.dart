@@ -4,11 +4,14 @@ import '../admin/menu_admin_api.dart';
 import '../admin/menu_admin_screen.dart';
 import '../admin/staff_api.dart';
 import '../admin/staff_screen.dart';
+import '../admin/tables_api.dart';
+import '../admin/tables_screen.dart';
 import '../auth/session.dart';
 import '../menu/menu_api.dart';
 import '../menu/menu_screen.dart';
 import '../orders/order_api.dart';
-import '../orders/orders_screen.dart';
+import '../orders/order_history_screen.dart';
+import '../orders/order_screen.dart';
 
 /// Main layout after login. Admin-only sections are hidden for waiters
 /// (the backend enforces the same rules).
@@ -32,14 +35,19 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   late final _menuApi = MenuApi(widget.session.api);
   late final _orderApi = OrderApi(widget.session.api);
+  late final _tablesApi = TablesApi(widget.session.api);
 
   List<_Section> _sections(Me me) => [
-        _Section('Orders', Icons.receipt_long,
-            () => OrdersScreen(orderApi: _orderApi, menuApi: _menuApi)),
+        _Section('New order', Icons.add_shopping_cart,
+            () => OrderScreen(orderApi: _orderApi, menuApi: _menuApi, tablesApi: _tablesApi)),
+        _Section('History', Icons.receipt_long,
+            () => OrderHistoryScreen(orderApi: _orderApi, isAdmin: me.isAdmin)),
         _Section('Menu', Icons.restaurant_menu, () => MenuScreen(menuApi: _menuApi)),
         if (me.isAdmin)
           _Section('Menu setup', Icons.edit_note,
               () => MenuAdminScreen(api: MenuAdminApi(widget.session.api))),
+        if (me.isAdmin)
+          _Section('Tables', Icons.table_restaurant, () => TablesScreen(api: _tablesApi)),
         if (me.isAdmin)
           _Section('Staff', Icons.badge,
               () => StaffScreen(api: StaffApi(widget.session.api), me: me)),

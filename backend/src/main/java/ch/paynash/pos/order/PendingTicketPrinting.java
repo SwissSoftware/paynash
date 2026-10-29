@@ -13,8 +13,8 @@ class PendingTicketPrinting implements TicketPrinting {
 	private static final Logger log = LoggerFactory.getLogger(PendingTicketPrinting.class);
 
 	@Override
-	public void roundSent(Order order, OrderRound round, List<OrderLine> lines) {
-		log.info("Round {} of table {} sent with {} line(s); ticket printing is not set up yet", round.number(),
+	public void orderSent(Order order, List<OrderLine> lines) {
+		log.info("Order {} for table {} sent with {} line(s); ticket printing is not set up yet", order.id(),
 				order.tableLabel(), lines.size());
 	}
 
@@ -22,6 +22,12 @@ class PendingTicketPrinting implements TicketPrinting {
 	public void lineCancelled(Order order, OrderLine line) {
 		log.info("Line {} × {} of table {} cancelled; ticket printing is not set up yet", line.qty(), line.name(),
 				order.tableLabel());
+	}
+
+	@Override
+	public void orderVoided(Order order, List<OrderLine> lines) {
+		log.info("Order {} for table {} voided, {} line(s) cancelled; ticket printing is not set up yet", order.id(),
+				order.tableLabel(), lines.size());
 	}
 
 }

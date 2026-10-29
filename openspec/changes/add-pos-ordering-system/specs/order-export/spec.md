@@ -7,11 +7,11 @@ Gives admins a CSV export of the orders placed in a chosen period, so sales can 
 ## ADDED Requirements
 
 ### Requirement: Export orders as CSV
-Admins SHALL be able to download a CSV file of orders in an inclusive date range, based on the order's opening date in the restaurant's local time zone. They SHALL be able to filter by order state (`open`, `paid`, `voided`, or all). Paid orders is the default.
+Admins SHALL be able to download a CSV file of orders in an inclusive date range, based on the date the order was sent in the restaurant's local time zone. They SHALL be able to filter by order state (`sent`, `voided`, or all). Sent orders is the default.
 
 #### Scenario: Export one day
-- **WHEN** an admin exports paid orders from 2026-10-01 to 2026-10-01
-- **THEN** a CSV file is downloaded that contains exactly the lines of the paid orders opened on that day
+- **WHEN** an admin exports sent orders from 2026-10-01 to 2026-10-01
+- **THEN** a CSV file is downloaded that contains exactly the lines of the sent orders sent on that day
 
 #### Scenario: Empty period
 - **WHEN** no orders match the filter
@@ -22,11 +22,11 @@ Admins SHALL be able to download a CSV file of orders in an inclusive date range
 - **THEN** the system rejects the request with a validation error
 
 ### Requirement: CSV layout
-The export SHALL have one row per order line, with these columns in this order: `order_id`, `table`, `waiter`, `opened_at`, `order_status`, `line_sent_at`, `item_name`, `item_type`, `category`, `quantity`, `unit_price`, `line_total`, `line_status`, `note`, `payment_method`, `paid_at`. Timestamps SHALL be ISO 8601 in local time with offset. Amounts SHALL use a dot as the decimal separator with two decimals.
+The export SHALL have one row per order line, with these columns in this order: `order_id`, `table`, `waiter`, `sent_at`, `order_status`, `item_name`, `item_type`, `category`, `quantity`, `unit_price`, `line_total`, `line_status`, `note`. Timestamps SHALL be ISO 8601 in local time with offset. Amounts SHALL use a dot as the decimal separator with two decimals.
 
 #### Scenario: Row content
-- **WHEN** a paid order for table "12" contains 2 × "Cola" at 4.50, paid by card
-- **THEN** the CSV contains a row with `quantity` 2, `unit_price` 4.50, `line_total` 9.00, `item_type` drink, and `payment_method` card
+- **WHEN** a sent order for table "12" contains 2 × "Cola" at 4.50
+- **THEN** the CSV contains a row with `table` 12, `quantity` 2, `unit_price` 4.50, `line_total` 9.00, and `item_type` drink
 
 #### Scenario: Cancelled line
 - **WHEN** an exported order contains a cancelled line

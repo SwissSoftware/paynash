@@ -70,8 +70,8 @@ public abstract class IntegrationTest {
 	void resetState() {
 		jdbc.sql("DELETE FROM idempotency_key").update();
 		jdbc.sql("DELETE FROM order_line").update();
-		jdbc.sql("DELETE FROM order_round").update();
 		jdbc.sql("DELETE FROM orders").update();
+		jdbc.sql("DELETE FROM dining_table").update();
 		jdbc.sql("DELETE FROM menu_item").update();
 		jdbc.sql("DELETE FROM category").update();
 		jdbc.sql("DELETE FROM session").update();

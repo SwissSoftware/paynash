@@ -32,9 +32,22 @@ public class OrderAdminController {
 			Integer version) {
 	}
 
+	public record CancelLineRequest(
+			@NotBlank(message = "A reason is required") @Size(max = 140,
+					message = "Reason must be at most 140 characters") String reason) {
+	}
+
+	@PostMapping("/{id}/lines/{lineId}/cancel")
+	@Operation(summary = "Cancel a line of a sent order", description = "Prints a cancellation ticket. A reason is required.")
+	public OrderView cancelLine(@PathVariable long id, @PathVariable long lineId,
+			@Valid @RequestBody CancelLineRequest r, @AuthenticationPrincipal AuthenticatedStaff current) {
+		return OrderView.of(service.cancelLine(id, lineId, r.reason(), current));
+	}
+
 	@PostMapping("/{id}/void")
-	@Operation(summary = "Void an open order",
-			description = "A reason is required. If version is given and the order changed meanwhile, answers 409.")
+	@Operation(summary = "Void a sent order",
+			description = "Cancels all remaining lines and prints cancellation tickets for them. A reason is "
+					+ "required. If version is given and the order changed meanwhile, answers 409.")
 	public OrderView voidOrder(@PathVariable long id, @Valid @RequestBody VoidRequest r,
 			@AuthenticationPrincipal AuthenticatedStaff current) {
 		return OrderView.of(service.voidOrder(id, r.reason(), r.version(), current));

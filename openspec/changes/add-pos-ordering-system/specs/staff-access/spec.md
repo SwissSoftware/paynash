@@ -55,7 +55,7 @@ Sessions SHALL expire after at most 12 hours. Staff SHALL be able to log out exp
 - **THEN** the system rejects it, and the app returns to the login screen
 
 ### Requirement: Role-based permissions
-The system SHALL check every request against the caller's role. Waiters SHALL be allowed to view the active menu, manage orders, trigger reprints, and record payments. Admins SHALL be allowed to do everything waiters can, plus manage the menu, images, staff, printers, and exports.
+The system SHALL check every request against the caller's role. Waiters SHALL be allowed to view the active menu, send orders, view the order history, and trigger reprints. Admins SHALL be allowed to do everything waiters can, plus cancel lines of sent orders, void orders, and manage the menu, images, staff, printers, and exports.
 
 #### Scenario: Waiter cannot export
 - **WHEN** a waiter requests a CSV export

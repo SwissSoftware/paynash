@@ -1,36 +1,36 @@
 import '../menu/menu_models.dart';
 
-/// One row of the open orders overview.
-class OpenOrderSummary {
-  OpenOrderSummary({
+/// One row of the order history.
+class OrderSummary {
+  OrderSummary({
     required this.id,
     required this.tableLabel,
+    required this.status,
     required this.waiter,
+    required this.sentAt,
     required this.total,
-    required this.ageMinutes,
-    required this.unsentLines,
   });
 
-  factory OpenOrderSummary.fromJson(Map<String, dynamic> json) => OpenOrderSummary(
+  factory OrderSummary.fromJson(Map<String, dynamic> json) => OrderSummary(
     id: json['id'] as int,
     tableLabel: json['tableLabel'] as String,
+    status: OrderStatus.values.byName(json['status'] as String),
     waiter: json['waiter'] as String,
+    sentAt: DateTime.parse(json['sentAt'] as String),
     total: json['total'] as String,
-    ageMinutes: json['ageMinutes'] as int,
-    unsentLines: json['unsentLines'] as int,
   );
 
   final int id;
   final String tableLabel;
+  final OrderStatus status;
   final String waiter;
+  final DateTime sentAt;
   final String total;
-  final int ageMinutes;
-  final int unsentLines;
 }
 
-enum OrderStatus { open, paid, voided }
+enum OrderStatus { sent, voided }
 
-enum LineStatus { unsent, sent, cancelled }
+enum LineStatus { sent, cancelled }
 
 class OrderLineData {
   OrderLineData({
@@ -42,9 +42,7 @@ class OrderLineData {
     required this.qty,
     required this.status,
     required this.lineTotal,
-    required this.version,
     this.note,
-    this.roundNumber,
     this.cancelReason,
   });
 
@@ -57,9 +55,7 @@ class OrderLineData {
     qty: json['qty'] as int,
     note: json['note'] as String?,
     status: LineStatus.values.byName(json['status'] as String),
-    roundNumber: json['roundNumber'] as int?,
     lineTotal: json['lineTotal'] as String,
-    version: json['version'] as int,
     cancelReason: json['cancelReason'] as String?,
   );
 
@@ -71,25 +67,22 @@ class OrderLineData {
   final int qty;
   final String? note;
   final LineStatus status;
-  final int? roundNumber;
   final String lineTotal;
-
-  /// Sent back when changing the line, so a change made on another device
-  /// meanwhile is not overwritten.
-  final int version;
   final String? cancelReason;
 }
 
+/// A sent order. It is final; only an admin can cancel lines or void it.
 class OrderData {
   OrderData({
     required this.id,
     required this.tableLabel,
     required this.status,
     required this.waiter,
+    required this.sentAt,
     required this.version,
     required this.total,
-    required this.hasUnsentLines,
     required this.lines,
+    this.voidReason,
   });
 
   factory OrderData.fromJson(Map<String, dynamic> json) => OrderData(
@@ -97,9 +90,10 @@ class OrderData {
     tableLabel: json['tableLabel'] as String,
     status: OrderStatus.values.byName(json['status'] as String),
     waiter: json['waiter'] as String,
+    sentAt: DateTime.parse(json['sentAt'] as String),
     version: json['version'] as int,
     total: json['total'] as String,
-    hasUnsentLines: json['hasUnsentLines'] as bool,
+    voidReason: json['voidReason'] as String?,
     lines: [
       for (final l in json['lines'] as List) OrderLineData.fromJson(l as Map<String, dynamic>),
     ],
@@ -109,10 +103,34 @@ class OrderData {
   final String tableLabel;
   final OrderStatus status;
   final String waiter;
+  final DateTime sentAt;
+
+  /// Sent back when voiding, so cancellations made meanwhile are not overlooked.
   final int version;
   final String total;
-  final bool hasUnsentLines;
   final List<OrderLineData> lines;
-
-  int get unsentCount => lines.where((l) => l.status == LineStatus.unsent).length;
+  final String? voidReason;
 }
+
+/// A line of the order being built on this device. Nothing is stored on the
+/// server until the whole order is sent.
+class DraftLine {
+  DraftLine(this.item, {this.qty = 1, this.note});
+
+  final MenuItemData item;
+  int qty;
+  String? note;
+
+  int get totalRappen => qty * rappen(item.price);
+
+  Map<String, dynamic> toJson() => {'menuItemId': item.id, 'qty': qty, 'note': note};
+}
+
+/// "4.50" → 450.
+int rappen(String chf) {
+  final [francs, cents] = chf.contains('.') ? chf.split('.') : [chf, '0'];
+  return int.parse(francs) * 100 + int.parse(cents.padRight(2, '0'));
+}
+
+/// 450 → "4.50".
+String chf(int rappen) => '${rappen ~/ 100}.${(rappen % 100).toString().padLeft(2, '0')}';

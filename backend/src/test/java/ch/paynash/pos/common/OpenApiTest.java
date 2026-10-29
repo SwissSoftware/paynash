@@ -25,10 +25,11 @@ class OpenApiTest extends IntegrationTest {
 		var api = result.getOpenAPI();
 		assertThat(api.getPaths()).containsKeys("/auth/login", "/auth/logout", "/auth/me", "/admin/staff",
 				"/admin/staff/{id}", "/admin/staff/{id}/pin");
-		assertThat(api.getPaths()).containsKeys("/orders", "/orders/{id}", "/orders/{id}/lines",
-				"/orders/{id}/lines/{lineId}", "/orders/{id}/send", "/orders/{id}/lines/{lineId}/cancel",
+		assertThat(api.getPaths()).containsKeys("/orders", "/orders/{id}", "/admin/orders/{id}/lines/{lineId}/cancel",
 				"/admin/orders/{id}/void");
-		assertThat(api.getPaths().get("/orders/{id}/send").getPost().getParameters())
+		assertThat(api.getPaths()).containsKeys("/tables", "/admin/tables", "/admin/tables/{id}");
+		assertThat(api.getPaths()).doesNotContainKeys("/orders/{id}/lines", "/orders/{id}/send");
+		assertThat(api.getPaths().get("/orders").getPost().getParameters())
 			.anySatisfy(p -> assertThat(p.getName()).isEqualTo(IdempotencyFilter.HEADER));
 		assertThat(api.getPaths().get("/orders/{id}").getGet().getParameters())
 			.noneSatisfy(p -> assertThat(p.getName()).isEqualTo(IdempotencyFilter.HEADER));
