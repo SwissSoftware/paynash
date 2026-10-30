@@ -5,11 +5,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 
-/** A clock tests can move forward. */
+/**
+ * A clock tests can move forward. It ticks in whole microseconds like PostgreSQL timestamps; with the nanoseconds
+ * Linux clocks have, a stored time would be rounded and could end up just after the moment a test moves to.
+ */
 public class MutableClock extends Clock {
 
-	private Instant now = Instant.now();
+	private Instant now = start();
 
 	public void advance(Duration duration) {
 		now = now.plus(duration);
@@ -21,7 +25,11 @@ public class MutableClock extends Clock {
 	}
 
 	public void reset() {
-		now = Instant.now();
+		now = start();
+	}
+
+	private static Instant start() {
+		return Instant.now().truncatedTo(ChronoUnit.MICROS);
 	}
 
 	@Override
