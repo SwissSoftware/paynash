@@ -75,7 +75,7 @@ Removed: there is no payment in the app (see proposal). The section number is ke
 
 - [x] 7.1 Implement the CSV writer: UTF-8 BOM, comma separator, RFC 4180 quoting, amounts with a dot and two decimals, ISO 8601 with offset (Europe/Zurich). Verify with unit tests for commas, quotes, line breaks in notes, and umlauts
 - [x] 7.2 Add the export endpoint (admin only, `from`/`to` inclusive by local date, status filter `sent`/`voided`/all with default sent, filtered by `sent_at`, header-only when empty, filename with the date range, streaming). Verify with tests: one day, empty period, from > to → 400, waiter → 403, cancelled line → line_total 0.00
-- [ ] 7.3 Build the admin UI export dialog (date range, status) with download. Verify manually that the downloaded file opens in Excel with the columns intact and correct umlauts
+- [x] 7.3 Build the admin UI export dialog (date range, status) with download. Verify manually that the downloaded file opens in Excel with the columns intact and correct umlauts
 
 ## 8. Deployment and operations
 
