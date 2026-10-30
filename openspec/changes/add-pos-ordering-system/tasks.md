@@ -7,7 +7,7 @@
 - [x] 1.3 Set up the Spring Boot backend skeleton with config (env/profiles), health endpoint, and JUnit + Testcontainers. Verify that `GET /health` returns 200 in a test
 - [x] 1.4 Set up PostgreSQL via Docker Compose (dev) with Flyway (forward-only; rollback by restoring a backup, see design Migration Plan). Verify that a baseline migration applies to an empty database in a Testcontainers test
 - [x] 1.5 Create the Flutter app skeleton for web with a configurable backend URL (CORS allowed for the dev origin). Verify that the app runs on localhost in the browser and calls `GET /health`
-- [ ] 1.6 Set up CI (lint, tests, build for the backend and the Flutter web app) and verify that a pipeline run is green
+- [x] 1.6 Set up CI (lint, tests, build for the backend and the Flutter web app) and verify that a pipeline run is green
 
 ## 2. Staff access (spec: staff-access)
 
@@ -75,7 +75,7 @@ Removed: there is no payment in the app (see proposal). The section number is ke
 
 - [x] 7.1 Implement the CSV writer: UTF-8 BOM, comma separator, RFC 4180 quoting, amounts with a dot and two decimals, ISO 8601 with offset (Europe/Zurich). Verify with unit tests for commas, quotes, line breaks in notes, and umlauts
 - [x] 7.2 Add the export endpoint (admin only, `from`/`to` inclusive by local date, status filter `sent`/`voided`/all with default sent, filtered by `sent_at`, header-only when empty, filename with the date range, streaming). Verify with tests: one day, empty period, from > to → 400, waiter → 403, cancelled line → line_total 0.00
-- [ ] 7.3 Build the admin UI export dialog (date range, status) with download. Verify manually that the downloaded file opens in Excel with the columns intact and correct umlauts
+- [x] 7.3 Build the admin UI export dialog (date range, status) with download. Verify manually that the downloaded file opens in Excel with the columns intact and correct umlauts
 
 ## 8. Deployment and operations
 
