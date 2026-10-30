@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../admin/menu_admin_api.dart';
 import '../admin/menu_admin_screen.dart';
+import '../admin/printers_api.dart';
+import '../admin/printers_screen.dart';
 import '../admin/staff_api.dart';
 import '../admin/staff_screen.dart';
 import '../admin/tables_api.dart';
 import '../admin/tables_screen.dart';
 import '../auth/session.dart';
+import '../export/export_api.dart';
 import '../menu/menu_api.dart';
 import '../menu/menu_screen.dart';
 import '../orders/order_api.dart';
@@ -41,13 +44,20 @@ class _HomeShellState extends State<HomeShell> {
         _Section('New order', Icons.add_shopping_cart,
             () => OrderScreen(orderApi: _orderApi, menuApi: _menuApi, tablesApi: _tablesApi)),
         _Section('History', Icons.receipt_long,
-            () => OrderHistoryScreen(orderApi: _orderApi, isAdmin: me.isAdmin)),
+            () => OrderHistoryScreen(
+                  orderApi: _orderApi,
+                  isAdmin: me.isAdmin,
+                  exportApi: me.isAdmin ? ExportApi(widget.session.api) : null,
+                )),
         _Section('Menu', Icons.restaurant_menu, () => MenuScreen(menuApi: _menuApi)),
         if (me.isAdmin)
           _Section('Menu setup', Icons.edit_note,
               () => MenuAdminScreen(api: MenuAdminApi(widget.session.api))),
         if (me.isAdmin)
           _Section('Tables', Icons.table_restaurant, () => TablesScreen(api: _tablesApi)),
+        if (me.isAdmin)
+          _Section('Printers', Icons.print,
+              () => PrintersScreen(api: PrintersApi(widget.session.api))),
         if (me.isAdmin)
           _Section('Staff', Icons.badge,
               () => StaffScreen(api: StaffApi(widget.session.api), me: me)),

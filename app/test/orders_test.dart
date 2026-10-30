@@ -303,9 +303,10 @@ void main() {
         ..['voidReason'] = 'test';
       await openHistory(tester);
 
-      final tiles = tester.widgetList<ListTile>(find.byType(ListTile)).toList();
-      expect((tiles[0].title as Text).data, 'Table 5');
-      expect((tiles[1].title as Text).data, 'Table 12');
+      expect(
+        tester.getTopLeft(find.text('Table 5')).dy,
+        lessThan(tester.getTopLeft(find.text('Table 12')).dy),
+      );
       expect(find.textContaining('Boss · Voided'), findsOneWidget);
       expect(find.text('CHF 9.00'), findsOneWidget);
     });

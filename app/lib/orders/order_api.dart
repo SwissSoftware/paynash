@@ -54,6 +54,14 @@ class OrderApi {
     }, newIdempotencyKey()),
   );
 
+  /// Prints the ticket again, marked REPRINT, and returns the order with the
+  /// new ticket.
+  Future<OrderData> reprint(int orderId, int ticketId) async {
+    await api.post('/orders/$orderId/tickets/$ticketId/reprint', null, newIdempotencyKey());
+    _etags.remove(orderId);
+    return load(orderId);
+  }
+
   OrderData _remember(dynamic json) {
     final order = OrderData.fromJson(json as Map<String, dynamic>);
     _cached[order.id] = order;

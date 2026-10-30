@@ -30,9 +30,13 @@ public class OrderRepository {
 		this.jdbc = jdbc;
 	}
 
-	/** One row of the order history. */
+	/**
+	 * One row of the order history. {@code printStatus} sums up the order's tickets, ignoring tickets that were
+	 * reprinted: {@code failed} if any failed (with the first error), else {@code pending} if any is still printing,
+	 * else {@code printed}; null without tickets.
+	 */
 	public record OrderSummary(long id, String tableLabel, OrderStatus status, String waiterName, Instant sentAt,
-			long totalRappen) {
+			long totalRappen, String printStatus, String printError) {
 	}
 
 	// --- orders
@@ -56,8 +60,17 @@ public class OrderRepository {
 	/** Orders sent in {@code [from, to)}, newest first. */
 	public List<OrderSummary> findSummaries(Instant from, Instant to) {
 		return jdbc.sql("""
+				WITH current_job AS (
+				    SELECT j.order_id, j.id, j.status, j.last_error FROM print_job j
+				    WHERE NOT EXISTS (SELECT 1 FROM print_job r WHERE r.reprint_of = j.id))
 				SELECT o.id, o.table_label, o.status, s.display_name, o.sent_at,
-				       coalesce(sum(l.qty * l.unit_price_snapshot) FILTER (WHERE l.status <> 'cancelled'), 0) AS total
+				       coalesce(sum(l.qty * l.unit_price_snapshot) FILTER (WHERE l.status <> 'cancelled'), 0) AS total,
+				       (SELECT CASE WHEN bool_or(c.status = 'failed') THEN 'failed'
+				                    WHEN bool_or(c.status = 'pending') THEN 'pending'
+				                    WHEN count(*) > 0 THEN 'printed' END
+				        FROM current_job c WHERE c.order_id = o.id) AS print_status,
+				       (SELECT c.last_error FROM current_job c
+				        WHERE c.order_id = o.id AND c.status = 'failed' ORDER BY c.id LIMIT 1) AS print_error
 				FROM orders o
 				JOIN staff s ON s.id = o.sent_by
 				LEFT JOIN order_line l ON l.order_id = o.id
@@ -67,7 +80,8 @@ public class OrderRepository {
 			.params(Timestamp.from(from), Timestamp.from(to))
 			.query((rs, row) -> new OrderSummary(rs.getLong("id"), rs.getString("table_label"),
 					OrderStatus.fromDb(rs.getString("status")), rs.getString("display_name"),
-					rs.getTimestamp("sent_at").toInstant(), rs.getLong("total")))
+					rs.getTimestamp("sent_at").toInstant(), rs.getLong("total"), rs.getString("print_status"),
+					rs.getString("print_error")))
 			.list();
 	}
 

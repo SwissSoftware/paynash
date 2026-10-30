@@ -9,7 +9,8 @@ Planning lives in `openspec/changes/add-pos-ordering-system/`.
 |---|---|
 | `backend/` | Java 21, Spring Boot, Maven, Flyway migrations (`src/main/resources/db/migration`) |
 | `app/` | Flutter app (waiter and admin), built for web |
-| `deploy/` | Docker Compose files |
+| `deploy/` | Docker Compose files: `docker-compose.dev.yml` (dev database), `docker-compose.yml` (on-site production with HTTPS and backups) |
+| `docs/` | API description (`api/openapi.json`), printer setup (`printing.md`), installation and operations (`operations.md`) |
 
 ## Local development
 
@@ -37,6 +38,14 @@ The app reads the backend URL from `--dart-define=API_BASE_URL=...` (default `ht
 cd backend && ./mvnw test   # needs the container runtime (Testcontainers)
 cd app && flutter test
 ```
+
+CI (`.github/workflows/ci.yml`) runs the same tests on every push to `main` and on pull requests, plus a lint step
+(`javac -Xlint:all` with warnings as errors, `flutter analyze`) and the backend jar and Flutter web builds.
+
+## Production
+
+The on-site server runs `deploy/docker-compose.yml`: Caddy (HTTPS, serves the web app, proxies `/api` to the
+backend), the backend, PostgreSQL, and a daily backup. See [docs/operations.md](docs/operations.md).
 
 ## API
 

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -64,6 +65,17 @@ class ApiClient {
     final response = await _execute(request);
     if (response.statusCode == 304) return null;
     return (body: _decode(response), etag: response.headers['etag']);
+  }
+
+  /// GET of a file, e.g. a CSV export. [filename] comes from the
+  /// Content-Disposition header.
+  Future<({Uint8List bytes, String? filename})> getBytes(String path) async {
+    final response = await _execute(http.Request('GET', Uri.parse('$baseUrl$path')));
+    final disposition = response.headers['content-disposition'];
+    final filename = disposition == null
+        ? null
+        : RegExp(r'filename="?([^";]+)"?').firstMatch(disposition)?.group(1);
+    return (bytes: response.bodyBytes, filename: filename);
   }
 
   /// Turns a server-relative URL such as "/images/x.webp" into an absolute one.

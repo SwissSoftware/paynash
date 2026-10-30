@@ -24,6 +24,7 @@ import org.springframework.web.filter.ShallowEtagHeaderFilter;
 import ch.paynash.pos.auth.AuthenticatedStaff;
 import ch.paynash.pos.common.Money;
 import ch.paynash.pos.menu.ItemType;
+import ch.paynash.pos.printing.TicketView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -49,8 +50,9 @@ public class OrderController {
 		this.service = service;
 	}
 
+	/** {@code printStatus} is printed, pending, or failed (then with {@code printError}); null without tickets. */
 	public record OrderSummaryView(long id, String tableLabel, OrderStatus status, String waiter, Instant sentAt,
-			String total) {
+			String total, String printStatus, String printError) {
 	}
 
 	public record LineView(long id, long menuItemId, String name, ItemType type, String category, String unitPrice,
@@ -58,7 +60,7 @@ public class OrderController {
 	}
 
 	public record OrderView(long id, String tableLabel, OrderStatus status, String waiter, Instant sentAt,
-			int version, String total, List<LineView> lines, String voidReason) {
+			int version, String total, List<LineView> lines, String voidReason, List<TicketView> tickets) {
 
 		static OrderView of(OrderService.OrderDetail d) {
 			Order o = d.order();
@@ -69,7 +71,8 @@ public class OrderController {
 						l.cancelReason()))
 				.toList();
 			return new OrderView(o.id(), o.tableLabel(), o.status(), o.sentByName(), o.sentAt(), o.version(),
-					Money.format(d.totalRappen()), lines, o.voidReason());
+					Money.format(d.totalRappen()), lines, o.voidReason(),
+					d.tickets().stream().map(TicketView::of).toList());
 		}
 
 	}
@@ -92,7 +95,7 @@ public class OrderController {
 		var views = service.history(date)
 			.stream()
 			.map(o -> new OrderSummaryView(o.id(), o.tableLabel(), o.status(), o.waiterName(), o.sentAt(),
-					Money.format(o.totalRappen())))
+					Money.format(o.totalRappen()), o.printStatus(), o.printError()))
 			.toList();
 		return ResponseEntity.ok().cacheControl(CacheControl.noCache()).body(views);
 	}
