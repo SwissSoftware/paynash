@@ -7,7 +7,7 @@
 - [x] 1.3 Set up the Spring Boot backend skeleton with config (env/profiles), health endpoint, and JUnit + Testcontainers. Verify that `GET /health` returns 200 in a test
 - [x] 1.4 Set up PostgreSQL via Docker Compose (dev) with Flyway (forward-only; rollback by restoring a backup, see design Migration Plan). Verify that a baseline migration applies to an empty database in a Testcontainers test
 - [x] 1.5 Create the Flutter app skeleton for web with a configurable backend URL (CORS allowed for the dev origin). Verify that the app runs on localhost in the browser and calls `GET /health`
-- [ ] 1.6 Set up CI (lint, tests, build for the backend and the Flutter web app) and verify that a pipeline run is green
+- [x] 1.6 Set up CI (lint, tests, build for the backend and the Flutter web app) and verify that a pipeline run is green
 
 ## 2. Staff access (spec: staff-access)
 
