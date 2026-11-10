@@ -31,6 +31,8 @@ cd app && flutter run -d chrome --web-port 5173
 Backend settings come from environment variables: `POS_DB_URL`, `POS_DB_USER`, `POS_DB_PASSWORD`,
 `POS_PORT` (default 8081), `POS_CORS_ALLOWED_ORIGINS` (default `http://localhost:5173`).
 The app reads the backend URL from `--dart-define=API_BASE_URL=...` (default `http://localhost:8081`).
+Android and iOS builds: see [docs/operations.md](docs/operations.md#mobile-apps) (backend URL and root certificate are
+fixed at build time).
 
 ## Tests
 

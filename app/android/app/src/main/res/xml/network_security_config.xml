@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HTTPS only (design D11). Besides the system CAs, trust CAs the user installed on the device,
+     so the root certificate of Caddy's local CA (POS_TLS=internal, docs/operations.md) works. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

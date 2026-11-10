@@ -70,6 +70,8 @@ Install `paynash-root.crt` on each device (send it by mail or offer it as a down
   *Settings → General → About → Certificate Trust Settings* → enable full trust for it.
 - **Android:** *Settings → Security → More security settings → Encryption & credentials → Install a certificate →
   CA certificate* (menu names vary by manufacturer).
+  This is only for the browser: the Android app ignores certificates installed this way and gets the root certificate
+  built in instead (see [Mobile apps](#mobile-apps)).
 - **Windows:** double-click → *Install Certificate* → *Local Machine* → *Trusted Root Certification Authorities*.
 - **macOS:** double-click to add it to the *System* keychain, open it there, and set *Trust → Always Trust*.
 
@@ -85,6 +87,21 @@ it (e.g. from Let's Encrypt via DNS-01). Then no device needs extra setup. Put t
 
 From another device in the LAN, open `https://<hostname>/api/health`. It must answer `{"status":"UP"}` without a
 certificate warning. Then open `https://<hostname>/`; the login screen appears.
+
+### Mobile apps
+
+The Android and iOS apps are built for one installation: the backend URL and, with `POS_TLS=internal`, the server's
+root certificate are fixed at build time. The app trusts that certificate in addition to the system ones; nothing has
+to be installed on the phones for it. From `app/`, with the `paynash-root.crt` exported above:
+
+```sh
+flutter build apk \
+  --dart-define=API_BASE_URL=https://<hostname>/api \
+  --dart-define=POS_ROOT_CA=$(base64 < paynash-root.crt | tr -d '\n')
+```
+
+With a real certificate (the alternative above), leave out `POS_ROOT_CA`. If the server gets a new certificate
+authority (new `caddy-data` volume), build and distribute the apps again.
 
 ## 2. First admin
 
@@ -173,7 +190,8 @@ with the PINs that were valid at the time of the backup.
 3. `docker compose up -d --build`, then restore as above. Ignore the one-time PIN of the new installation; the restore
    replaces that admin.
 4. With `POS_TLS=internal` the new server has a new certificate authority; install its `paynash-root.crt` on the
-   devices again. (To avoid this, also back up and restore the `caddy-data` volume.)
+   devices again and rebuild the mobile apps with it ([Mobile apps](#mobile-apps)). (To avoid this, also back up and
+   restore the `caddy-data` volume.)
 
 ## 6. Troubleshooting
 
@@ -181,6 +199,7 @@ with the PINs that were valid at the time of the backup.
 |---|---|---|
 | Devices show "no connection" | `docker compose ps`; `https://<hostname>/api/health` from a device | Start missing services: `docker compose up -d`. Check WiFi and that the hostname resolves to the server |
 | Certificate warning in the browser | Is `paynash-root.crt` trusted on the device? Does the address match `POS_HOSTNAME`? | Install the root certificate (section 1); always use the hostname, not the IP |
+| Mobile app shows "no connection", the browser on the same phone works | Was the app built with the current `paynash-root.crt` and `https://<hostname>/api`? | Rebuild the app as in [Mobile apps](#mobile-apps) |
 | `backend` not healthy | `docker compose logs --tail 100 backend` | Database errors: check `postgres` is healthy and `POS_DB_PASSWORD` was not changed after the first start |
 | Login says invalid username or PIN | Account locked after 5 wrong PINs? | Wait 5 minutes, or an admin resets the PIN |
 | Admin PIN lost and no other admin | — | Ask the developer to reset it in the database; a restore would bring back the old PIN but loses newer orders |
