@@ -136,7 +136,9 @@ class MenuTile extends StatelessWidget {
   }
 }
 
-/// Shown when an item has no image: the name with a food or drink icon.
+/// Shown in the image area when an item has no image: a food or drink icon.
+/// The tile shows the name below it, so it is not repeated here; on small
+/// tiles (phones) it would not fit.
 class ItemPlaceholder extends StatelessWidget {
   const ItemPlaceholder({super.key, required this.item});
 
@@ -147,16 +149,9 @@ class ItemPlaceholder extends StatelessWidget {
     return Container(
       key: Key('placeholder-${item.id}'),
       color: item.type.color.withValues(alpha: 0.12),
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(item.type.icon, size: 40, color: item.type.color),
-          const SizedBox(height: 4),
-          Text(item.name,
-              textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-        ],
-      ),
+      padding: const EdgeInsets.all(12),
+      alignment: Alignment.center,
+      child: FittedBox(child: Icon(item.type.icon, size: 40, color: item.type.color)),
     );
   }
 }

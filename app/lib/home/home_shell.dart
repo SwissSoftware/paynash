@@ -98,16 +98,59 @@ class _HomeShellState extends State<HomeShell> {
           Expanded(child: sections[index].build()),
         ],
       ),
-      bottomNavigationBar: !wide && sections.length > 1
-          ? NavigationBar(
-              selectedIndex: index,
-              onDestinationSelected: (i) => setState(() => _index = i),
-              destinations: [
-                for (final s in sections)
-                  NavigationDestination(icon: Icon(s.icon), label: s.label),
-              ],
-            )
-          : null,
+      bottomNavigationBar: !wide && sections.length > 1 ? _bottomBar(sections, index) : null,
     );
+  }
+
+  /// Phone navigation. More than [_maxBarItems] sections do not fit (the labels
+  /// wrap), so the waiter sections stay in the bar and the admin sections move
+  /// into "More".
+  static const _maxBarItems = 4;
+  static const _barSections = _maxBarItems - 1;
+
+  Widget _bottomBar(List<_Section> sections, int index) {
+    final overflow = sections.length > _maxBarItems;
+    final inBar = overflow ? sections.take(_barSections).toList() : sections;
+    return NavigationBar(
+      selectedIndex: overflow && index >= _barSections ? _barSections : index,
+      onDestinationSelected: (i) {
+        if (overflow && i == _barSections) {
+          _showMore(sections, index);
+        } else {
+          setState(() => _index = i);
+        }
+      },
+      destinations: [
+        for (final s in inBar) NavigationDestination(icon: Icon(s.icon), label: s.label),
+        if (overflow)
+          const NavigationDestination(
+            key: Key('nav-more'),
+            icon: Icon(Icons.more_horiz),
+            label: 'More',
+          ),
+      ],
+    );
+  }
+
+  Future<void> _showMore(List<_Section> sections, int index) async {
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = _barSections; i < sections.length; i++)
+              ListTile(
+                leading: Icon(sections[i].icon),
+                title: Text(sections[i].label),
+                selected: i == index,
+                onTap: () => Navigator.pop(context, i),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) setState(() => _index = picked);
   }
 }

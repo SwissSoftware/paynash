@@ -36,6 +36,10 @@ class OrderScreen extends StatefulWidget {
 class _OrderScreenState extends State<OrderScreen> with Polling {
   final _table = TextEditingController();
   final _lines = <DraftLine>[];
+
+  /// Phone layout: the lines list can be shorter than the draft, so a newly
+  /// added line is scrolled into view.
+  final _linesScroll = ScrollController();
   List<MenuCategoryData>? _menu;
   List<TableData> _tables = const [];
   String? _error;
@@ -60,6 +64,7 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
   @override
   void dispose() {
     _table.dispose();
+    _linesScroll.dispose();
     super.dispose();
   }
 
@@ -106,6 +111,9 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
       final existing = _lines.where((l) => l.item.id == item.id && l.note == null && l.qty < 99);
       if (existing.isEmpty) {
         _lines.add(DraftLine(item));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_linesScroll.hasClients) _linesScroll.jumpTo(_linesScroll.position.maxScrollExtent);
+        });
       } else {
         existing.first.qty++;
       }
@@ -210,8 +218,10 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
         imageUrl: widget.menuApi.imageUrl,
         onItemTap: _sending ? null : _addItem,
       );
-      final panel = _DraftPanel(
+      Widget panel({double? maxLinesHeight}) => _DraftPanel(
         compact: !wide,
+        maxLinesHeight: maxLinesHeight,
+        linesScroll: _linesScroll,
         table: _table,
         tables: _tables,
         onPickTable: _pickTable,
@@ -233,15 +243,19 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
               children: [
                 Expanded(child: browser),
                 const VerticalDivider(width: 1),
-                SizedBox(width: 400, child: panel),
+                SizedBox(width: 400, child: panel()),
               ],
             )
-          : Column(
-              children: [
-                Expanded(flex: 5, child: browser),
-                const Divider(height: 1),
-                Expanded(flex: 4, child: panel),
-              ],
+          // Phone: the menu gets the space the draft does not need. The lines
+          // grow with the draft up to a share of the height, then scroll.
+          : LayoutBuilder(
+              builder: (context, constraints) => Column(
+                children: [
+                  Expanded(child: browser),
+                  const Divider(height: 1),
+                  panel(maxLinesHeight: constraints.maxHeight * 0.3),
+                ],
+              ),
             );
     }
 
@@ -257,6 +271,8 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
 class _DraftPanel extends StatelessWidget {
   const _DraftPanel({
     required this.compact,
+    this.maxLinesHeight,
+    required this.linesScroll,
     required this.table,
     required this.tables,
     required this.onPickTable,
@@ -272,9 +288,13 @@ class _DraftPanel extends StatelessWidget {
     required this.onNote,
   });
 
-  /// Phone layout: the panel is short, so the table field and the table
-  /// chips share one row.
+  /// Phone layout: the panel only takes the height it needs, and the table
+  /// field and the table chips share one row.
   final bool compact;
+
+  /// Phone layout: the lines list scrolls beyond this height.
+  final double? maxLinesHeight;
+  final ScrollController linesScroll;
   final TextEditingController table;
   final List<TableData> tables;
   final void Function(TableData table) onPickTable;
@@ -316,7 +336,21 @@ class _DraftPanel extends StatelessWidget {
             singleRow: compact,
             onPick: sending ? null : onPickTable,
           );
+    final tiles = [
+      for (final (i, line) in lines.indexed)
+        _DraftLineTile(
+          index: i,
+          line: line,
+          dense: compact,
+          enabled: !sending,
+          onQty: onQty,
+          onRemove: onRemove,
+          onNote: onNote,
+        ),
+    ];
     return Column(
+      key: const Key('order-panel'),
+      mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (compact && picker != null)
@@ -335,23 +369,22 @@ class _DraftPanel extends StatelessWidget {
           ?picker,
           Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: tableField),
         ],
-        Expanded(
-          child: lines.isEmpty
-              ? const Center(child: Text('Tap items to add them.'))
-              : ListView(
-                  children: [
-                    for (final (i, line) in lines.indexed)
-                      _DraftLineTile(
-                        index: i,
-                        line: line,
-                        enabled: !sending,
-                        onQty: onQty,
-                        onRemove: onRemove,
-                        onNote: onNote,
-                      ),
-                  ],
-                ),
-        ),
+        if (!compact)
+          Expanded(
+            child: lines.isEmpty
+                ? const Center(child: Text('Tap items to add them.'))
+                : ListView(children: tiles),
+          )
+        else if (lines.isNotEmpty)
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxLinesHeight ?? double.infinity),
+            child: ListView(
+              key: const Key('draft-lines'),
+              controller: linesScroll,
+              shrinkWrap: true,
+              children: tiles,
+            ),
+          ),
         const Divider(height: 1),
         if (sendError != null)
           Padding(
@@ -460,6 +493,7 @@ class _DraftLineTile extends StatelessWidget {
   const _DraftLineTile({
     required this.index,
     required this.line,
+    this.dense = false,
     required this.enabled,
     required this.onQty,
     required this.onRemove,
@@ -469,6 +503,10 @@ class _DraftLineTile extends StatelessWidget {
   /// Position in the draft; draft lines have no server id yet.
   final int index;
   final DraftLine line;
+
+  /// Phone layout: tighter spacing, so long names keep some room next to the
+  /// buttons.
+  final bool dense;
   final bool enabled;
   final void Function(DraftLine line, int qty) onQty;
   final void Function(DraftLine line) onRemove;
@@ -478,8 +516,11 @@ class _DraftLineTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       key: Key('draft-line-$index'),
+      visualDensity: dense ? VisualDensity.compact : null,
+      contentPadding: dense ? const EdgeInsets.only(left: 16, right: 4) : null,
+      horizontalTitleGap: dense ? 8 : null,
       leading: ItemTypeBadge(line.item.type),
-      title: Text(line.item.name),
+      title: Text(line.item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: line.note == null ? null : Text(line.note!),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,

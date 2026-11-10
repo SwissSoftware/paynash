@@ -288,6 +288,84 @@ void main() {
       expect(app.backend.orders.single['status'], 'sent');
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('on a phone a long draft scrolls and keeps the newest line in view', (
+      tester,
+    ) async {
+      final (app, _) = await start(tester, size: const Size(400, 800));
+      final mains = app.backend.addCategory('Mains');
+      final ids = [
+        for (var i = 1; i <= 8; i++)
+          app.backend.addItem(mains, 'Zürcher Geschnetzeltes mit Rösti $i', 'food', '38.50'),
+      ];
+      await tester.pump(Polling.pollInterval);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(Key('category-chip-$mains')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('category-chip-$mains')));
+      await tester.pumpAndSettle();
+
+      await enterTable(tester, '3');
+      for (final id in ids) {
+        await tester.scrollUntilVisible(
+          find.byKey(Key('menu-tile-$id')),
+          100,
+          scrollable: find.descendant(of: find.byType(GridView), matching: find.byType(Scrollable)),
+        );
+        // Fully into view, so the tap does not land on the order panel below.
+        await tester.ensureVisible(find.byKey(Key('menu-tile-$id')));
+        await tester.pumpAndSettle();
+        await tapTile(tester, id);
+      }
+
+      final list = tester.getRect(find.byKey(const Key('draft-lines')));
+      expect(list.height, lessThanOrEqualTo(800 * 0.3));
+      final newest = tester.getRect(find.byKey(const Key('draft-line-7')));
+      expect(newest.top, greaterThanOrEqualTo(list.top));
+      expect(newest.bottom, lessThanOrEqualTo(list.bottom + 0.5));
+      expect(sendLabel(tester), 'Send (8)');
+
+      await send(tester);
+      expect((app.backend.orders.single['lines'] as List).length, 8);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('on a phone an empty draft leaves the space to the menu', (tester) async {
+      await start(tester, size: const Size(400, 800));
+
+      expect(find.byKey(const Key('draft-lines')), findsNothing);
+      expect(
+        tester.getSize(find.byType(GridView)).height,
+        greaterThan(tester.getSize(find.byKey(const Key('order-panel'))).height),
+      );
+    });
+  });
+
+  group('phone navigation', () {
+    Finder destinations() => find.descendant(
+      of: find.byType(NavigationBar),
+      matching: find.byType(NavigationDestination),
+    );
+
+    testWidgets('waiters see their three sections in the bottom bar', (tester) async {
+      await start(tester, size: const Size(400, 800));
+
+      expect(destinations(), findsNWidgets(3));
+      expect(find.byKey(const Key('nav-more')), findsNothing);
+    });
+
+    testWidgets('admins reach the admin sections through More', (tester) async {
+      await start(tester, size: const Size(400, 800), admin: true);
+      expect(destinations(), findsNWidgets(4));
+
+      await tester.tap(find.byKey(const Key('nav-more')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tables'));
+      await tester.pumpAndSettle();
+
+      expect(find.descendant(of: find.byType(AppBar), matching: find.text('Tables')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('history', () {
