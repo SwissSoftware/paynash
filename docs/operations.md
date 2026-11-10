@@ -100,6 +100,18 @@ flutter build apk \
   --dart-define=POS_ROOT_CA=$(base64 < paynash-root.crt | tr -d '\n')
 ```
 
+For iOS (on a Mac with Xcode), use the same two `--dart-define` values:
+
+```sh
+flutter build ipa \
+  --dart-define=API_BASE_URL=https://<hostname>/api \
+  --dart-define=POS_ROOT_CA=$(base64 < paynash-root.crt | tr -d '\n')
+```
+
+On first use, iOS asks for permission to use the local network. Allow it, or the app cannot reach the server. If it
+was denied, turn it on again under *Settings → Privacy & Security → Local Network → Paynash POS*. The app only uses
+HTTPS, so App Transport Security needs no exceptions.
+
 With a real certificate (the alternative above), leave out `POS_ROOT_CA`. If the server gets a new certificate
 authority (new `caddy-data` volume), build and distribute the apps again.
 
@@ -200,6 +212,7 @@ with the PINs that were valid at the time of the backup.
 | Devices show "no connection" | `docker compose ps`; `https://<hostname>/api/health` from a device | Start missing services: `docker compose up -d`. Check WiFi and that the hostname resolves to the server |
 | Certificate warning in the browser | Is `paynash-root.crt` trusted on the device? Does the address match `POS_HOSTNAME`? | Install the root certificate (section 1); always use the hostname, not the IP |
 | Mobile app shows "no connection", the browser on the same phone works | Was the app built with the current `paynash-root.crt` and `https://<hostname>/api`? | Rebuild the app as in [Mobile apps](#mobile-apps) |
+| iPhone app shows "no connection", the browser on the same phone works | *Settings → Privacy & Security → Local Network → Paynash POS* | Turn local network access on |
 | `backend` not healthy | `docker compose logs --tail 100 backend` | Database errors: check `postgres` is healthy and `POS_DB_PASSWORD` was not changed after the first start |
 | Login says invalid username or PIN | Account locked after 5 wrong PINs? | Wait 5 minutes, or an admin resets the PIN |
 | Admin PIN lost and no other admin | — | Ask the developer to reset it in the database; a restore would bring back the old PIN but loses newer orders |
