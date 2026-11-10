@@ -6,9 +6,13 @@ import 'auth/session.dart';
 import 'auth/token_store.dart';
 import 'config.dart';
 import 'home/home_shell.dart';
+import 'net/site_trust.dart';
 
 void main() {
-  final api = ApiClient(baseUrl: apiBaseUrl, tokenStore: SharedPreferencesTokenStore());
+  // The session restore below reads the token over a platform channel (secure storage on mobile).
+  WidgetsFlutterBinding.ensureInitialized();
+  installSiteTrust();
+  final api = ApiClient(baseUrl: apiBaseUrl, tokenStore: TokenStore.forPlatform());
   runApp(PosApp(session: SessionController(api)..restore()));
 }
 
