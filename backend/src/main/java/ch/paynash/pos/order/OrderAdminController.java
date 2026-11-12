@@ -41,7 +41,7 @@ public class OrderAdminController {
 	@Operation(summary = "Cancel a line of a sent order", description = "Prints a cancellation ticket. A reason is required.")
 	public OrderView cancelLine(@PathVariable long id, @PathVariable long lineId,
 			@Valid @RequestBody CancelLineRequest r, @AuthenticationPrincipal AuthenticatedStaff current) {
-		return OrderView.of(service.cancelLine(id, lineId, r.reason(), current));
+		return OrderView.of(service.cancelLine(id, lineId, r.reason(), current.id(), null));
 	}
 
 	@PostMapping("/{id}/void")
@@ -50,7 +50,7 @@ public class OrderAdminController {
 					+ "required. If version is given and the order changed meanwhile, answers 409.")
 	public OrderView voidOrder(@PathVariable long id, @Valid @RequestBody VoidRequest r,
 			@AuthenticationPrincipal AuthenticatedStaff current) {
-		return OrderView.of(service.voidOrder(id, r.reason(), r.version(), current));
+		return OrderView.of(service.voidOrder(id, r.reason(), r.version(), current.id(), null));
 	}
 
 }

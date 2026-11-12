@@ -116,17 +116,20 @@ public class OrderService {
 		return detail(orderId);
 	}
 
-	// --- admin
+	// --- cancelling (admins, or staff confirming at a station)
 
-	/** A sent line stays in the order as cancelled, no longer counts, and triggers a cancellation ticket. */
+	/**
+	 * A sent line stays in the order as cancelled, no longer counts, and triggers a cancellation ticket.
+	 * {@code staffId} is who cancelled; {@code stationId} the station where it was confirmed, or null.
+	 */
 	@Transactional
-	public OrderDetail cancelLine(long orderId, long lineId, String reason, AuthenticatedStaff admin) {
+	public OrderDetail cancelLine(long orderId, long lineId, String reason, long staffId, Long stationId) {
 		Order order = lockSent(orderId);
 		OrderLine line = orders.findLine(orderId, lineId).orElseThrow(() -> ApiException.notFound("Order line"));
 		if (line.status() == LineStatus.CANCELLED) {
 			throw ApiException.conflict("The line is already cancelled");
 		}
-		orders.cancelLine(lineId, reason.trim(), admin.id(), clock.instant());
+		orders.cancelLine(lineId, reason.trim(), staffId, stationId, clock.instant());
 		orders.incrementVersion(orderId);
 		printing.lineCancelled(order, orders.findLine(orderId, lineId).orElseThrow());
 		return detail(orderId);
@@ -138,7 +141,7 @@ public class OrderService {
 	 * rejects the void so cancellations made meanwhile are not overlooked.
 	 */
 	@Transactional
-	public OrderDetail voidOrder(long orderId, String reason, Integer version, AuthenticatedStaff admin) {
+	public OrderDetail voidOrder(long orderId, String reason, Integer version, long staffId, Long stationId) {
 		Order order = lockSent(orderId);
 		if (version != null && version != order.version()) {
 			throw ApiException.conflict("The order was changed meanwhile. Please check it and try again.");
@@ -149,8 +152,8 @@ public class OrderService {
 			.map(OrderLine::id)
 			.toList();
 		Instant now = clock.instant();
-		orders.cancelSentLines(orderId, reason.trim(), admin.id(), now);
-		orders.voidOrder(orderId, admin.id(), reason.trim(), now);
+		orders.cancelSentLines(orderId, reason.trim(), staffId, stationId, now);
+		orders.voidOrder(orderId, staffId, stationId, reason.trim(), now);
 		OrderDetail detail = detail(orderId);
 		printing.orderVoided(detail.order(), detail.lines().stream().filter(l -> toCancel.contains(l.id())).toList());
 		return detail(orderId);

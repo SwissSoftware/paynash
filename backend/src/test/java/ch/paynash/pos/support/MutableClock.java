@@ -13,7 +13,7 @@ import java.time.temporal.ChronoUnit;
  */
 public class MutableClock extends Clock {
 
-	private Instant now = start();
+	private volatile Instant now = start();
 
 	public void advance(Duration duration) {
 		now = now.plus(duration);

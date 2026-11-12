@@ -79,9 +79,11 @@ class _StaffScreenState extends State<StaffScreen> {
                     for (final m in staff)
                       ListTile(
                         key: Key('staff-${m.username}'),
-                        leading: Icon(m.role == Role.admin
-                            ? Icons.admin_panel_settings
-                            : Icons.person),
+                        leading: Icon(switch (m.role) {
+                          Role.admin => Icons.admin_panel_settings,
+                          Role.station => Icons.print,
+                          Role.waiter => Icons.person,
+                        }),
                         title: Text(m.displayName,
                             style: m.active
                                 ? null
@@ -126,6 +128,19 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
   final _pin = TextEditingController();
   late Role _role = widget.member?.role ?? Role.waiter;
   late bool _active = widget.member?.active ?? true;
+  late final Set<int> _printerIds = {...?widget.member?.printerIds};
+  List<({int id, String name})>? _printers;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.api.printers().then((p) {
+      if (mounted) setState(() => _printers = p);
+    }, onError: (_) {});
+  }
+
+  /// Only stations show printers; the backend drops them for other roles.
+  List<int> get _assigned => _role == Role.station ? _printerIds.toList() : const [];
   Map<String, String> _fieldErrors = {};
   String? _error;
   bool _busy = false;
@@ -144,10 +159,14 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
             username: _username.text.trim(),
             displayName: _displayName.text.trim(),
             role: _role,
-            pin: _pin.text);
+            pin: _pin.text,
+            printerIds: _assigned);
       } else {
         await widget.api.update(widget.member!.id,
-            displayName: _displayName.text.trim(), role: _role, active: _active);
+            displayName: _displayName.text.trim(),
+            role: _role,
+            active: _active,
+            printerIds: _assigned);
       }
       if (mounted) Navigator.pop(context, true);
     } on ApiError catch (e) {
@@ -200,10 +219,32 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
               segments: const [
                 ButtonSegment(value: Role.waiter, label: Text('Waiter')),
                 ButtonSegment(value: Role.admin, label: Text('Admin')),
+                ButtonSegment(value: Role.station, label: Text('Station')),
               ],
               selected: {_role},
               onSelectionChanged: (s) => setState(() => _role = s.first),
             ),
+            if (_role == Role.station) ...[
+              const SizedBox(height: 12),
+              const Text('Printers this station shows'),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final p in _printers ?? const <({int id, String name})>[])
+                    FilterChip(
+                      key: Key('staff-printer-${p.name}'),
+                      label: Text(p.name),
+                      selected: _printerIds.contains(p.id),
+                      onSelected: (on) => setState(
+                          () => on ? _printerIds.add(p.id) : _printerIds.remove(p.id)),
+                    ),
+                ],
+              ),
+              if (_fieldErrors['printerIds'] != null)
+                Text(_fieldErrors['printerIds']!,
+                    key: const Key('staff-printers-error'),
+                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
             if (!_isNew)
               SwitchListTile(
                 key: const Key('staff-active'),

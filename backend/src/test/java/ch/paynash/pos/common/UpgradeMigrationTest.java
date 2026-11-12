@@ -56,6 +56,40 @@ class UpgradeMigrationTest {
 		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
 	}
 
+	@Test
+	void printHardeningMigrationKeepsFailedTicketsAndAcceptsNewStatesAndStations() {
+		jdbc.sql("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE").update();
+		flyway("8").migrate();
+		in(SCHEMA, """
+				INSERT INTO staff (id, username, display_name, role, pin_hash) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'anna', 'Anna', 'waiter', 'h');
+				INSERT INTO orders (id, table_label, sent_by, sent_at) OVERRIDING SYSTEM VALUE
+				    VALUES (1, '12', 1, now());
+				INSERT INTO printer (id, name, address, item_type) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'Bar', '10.0.0.5', 'drink');
+				INSERT INTO print_job (order_id, item_type, printer_id, kind, content, status, last_error, created_at)
+				    VALUES (1, 'drink', 1, 'normal', 'x', 'failed', 'printer offline', now());
+				""");
+
+		var result = flyway(null).migrate();
+
+		assertThat(result.success).isTrue();
+		assertThat(jdbc.sql("SELECT status FROM " + SCHEMA + ".print_job").query(String.class).single())
+			.isEqualTo("failed");
+		in(SCHEMA, """
+				INSERT INTO staff (id, username, display_name, role, pin_hash) OVERRIDING SYSTEM VALUE
+				    VALUES (2, 'station-bar', 'Station Bar', 'station', 'h');
+				INSERT INTO station_printer (station_id, printer_id) VALUES (2, 1);
+				INSERT INTO print_job (order_id, item_type, printer_id, kind, content, status, ticket_no, created_at)
+				    VALUES (1, 'drink', 1, 'normal', 'x', 'printing', 1, now()),
+				           (1, 'drink', 1, 'normal', 'x', 'unclear', 2, now());
+				""");
+		assertThat(jdbc.sql("SELECT count(*) FROM " + SCHEMA + ".print_job").query(Long.class).single()).isEqualTo(3);
+		assertThat(jdbc.sql("SELECT last_ticket_no FROM " + SCHEMA + ".printer").query(Integer.class).single())
+			.isZero();
+		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
+	}
+
 	private Flyway flyway(String target) {
 		var config = Flyway.configure().dataSource(dataSource).schemas(SCHEMA).defaultSchema(SCHEMA);
 		if (target != null) {

@@ -5,7 +5,9 @@ import com.fasterxml.jackson.annotation.JsonValue;
 
 public enum Role {
 
-	ADMIN, WAITER;
+	ADMIN, WAITER,
+	/** A screen next to a printer: sees and resolves that printer's tickets (harden-printing-for-events D6). */
+	STATION;
 
 	@JsonValue
 	public String dbValue() {

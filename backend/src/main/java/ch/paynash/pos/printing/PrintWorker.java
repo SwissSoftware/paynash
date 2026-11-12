@@ -10,16 +10,17 @@ import java.util.concurrent.Executors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 /**
- * Delivers queued tickets (design D3). Each printer is served by one task at a time and only its oldest pending job
- * is sent, so tickets arrive in order and a stuck printer does not hold up the other one. Failures where nothing can
- * have printed are retried with growing pauses for at least the retry window; anything else is marked failed at
- * once, so a ticket is never printed twice automatically.
+ * Delivers queued tickets (design D3; harden-printing-for-events D1, D2). Each printer is served by one task at a time
+ * and only its oldest pending job is sent, so tickets arrive in order and a stuck printer does not hold up the other
+ * one. When the printer certainly printed nothing (offline, paper end, cover open) the job waits with growing pauses,
+ * without a time limit, and later jobs wait behind it. When it may have printed, the job becomes unclear and is never
+ * sent again automatically; configuration errors fail at once.
  */
 @Component
 public class PrintWorker {
@@ -27,6 +28,8 @@ public class PrintWorker {
 	private static final Logger log = LoggerFactory.getLogger(PrintWorker.class);
 
 	private static final Duration MAX_PAUSE = Duration.ofSeconds(16);
+
+	static final String INTERRUPTED = "system restarted while printing; check the ticket and reprint if needed";
 
 	private final PrintJobRepository jobs;
 
@@ -36,19 +39,31 @@ public class PrintWorker {
 
 	private final Clock clock;
 
-	private final Duration retryWindow;
+	private final PrinterStatusMonitor monitor;
 
 	private final Set<Long> busy = ConcurrentHashMap.newKeySet();
 
 	private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
 	public PrintWorker(PrintJobRepository jobs, PrinterRepository printers, EposClient epos, Clock clock,
-			@Value("${pos.printing.retry-window:60s}") Duration retryWindow) {
+			PrinterStatusMonitor monitor) {
 		this.jobs = jobs;
 		this.printers = printers;
 		this.epos = epos;
 		this.clock = clock;
-		this.retryWindow = retryWindow;
+		this.monitor = monitor;
+	}
+
+	/**
+	 * Runs once at startup, before the scheduler starts the worker: a job still marked as printing was sent by a
+	 * process that stopped before it recorded the answer, so it may have printed (design D2).
+	 */
+	@PostConstruct
+	void recoverInterrupted() {
+		int count = jobs.markInterruptedUnclear(INTERRUPTED);
+		if (count > 0) {
+			log.warn("{} ticket(s) were being printed when the system stopped; marked unclear", count);
+		}
 	}
 
 	/** Starts a delivery task for every printer that has a due job and none running. */
@@ -89,15 +104,19 @@ public class PrintWorker {
 				continue;
 			}
 			jobs.startAttempt(job.id(), now);
-			Instant firstAttempt = job.firstAttemptAt() != null ? job.firstAttemptAt() : now;
 			EposClient.Result result = epos.print(printer, Ticket.decode(job.content()));
 			Instant done = clock.instant();
+			monitor.reported(printerId, result);
 			switch (result) {
 				case EposClient.Result.Printed p -> jobs.markPrinted(job.id(), done);
-				case EposClient.Result.Failed f when f.retryable()
-						&& Duration.between(firstAttempt, done).compareTo(retryWindow) < 0 -> {
-					jobs.retryAt(job.id(), f.error(), done.plus(pause(job.attempts() + 1)));
+				case EposClient.Result.NotPrinted n -> {
+					jobs.waitFor(job.id(), n.error(), done.plus(pause(job.attempts() + 1)));
 					return;
+				}
+				case EposClient.Result.Unclear u -> {
+					log.warn("Ticket {} for order {} on {} is unclear: {}", job.id(), job.orderId(), printer.name(),
+							u.error());
+					jobs.markUnclear(job.id(), u.error());
 				}
 				case EposClient.Result.Failed f -> {
 					log.warn("Ticket {} for order {} failed on {}: {}", job.id(), job.orderId(), printer.name(),

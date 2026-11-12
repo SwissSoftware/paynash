@@ -8,6 +8,7 @@ class StaffMember {
     required this.displayName,
     required this.role,
     required this.active,
+    this.printerIds = const [],
   });
 
   factory StaffMember.fromJson(Map<String, dynamic> json) => StaffMember(
@@ -16,6 +17,7 @@ class StaffMember {
         displayName: json['displayName'] as String,
         role: Role.values.byName(json['role'] as String),
         active: json['active'] as bool,
+        printerIds: [for (final id in json['printerIds'] as List? ?? const []) id as int],
       );
 
   final int id;
@@ -23,6 +25,9 @@ class StaffMember {
   final String displayName;
   final Role role;
   final bool active;
+
+  /// The printers a station shows; empty for other roles.
+  final List<int> printerIds;
 }
 
 class StaffApi {
@@ -35,22 +40,37 @@ class StaffApi {
           StaffMember.fromJson(json as Map<String, dynamic>),
       ];
 
+  /// The printers a station can be assigned to, by id and name.
+  Future<List<({int id, String name})>> printers() async => [
+        for (final json in await _api.get('/admin/printers') as List)
+          (id: json['id'] as int, name: json['name'] as String),
+      ];
+
   Future<void> create(
           {required String username,
           required String displayName,
           required Role role,
-          required String pin}) =>
+          required String pin,
+          List<int> printerIds = const []}) =>
       _api.post('/admin/staff', {
         'username': username,
         'displayName': displayName,
         'role': role.name,
         'pin': pin,
+        'printerIds': printerIds,
       });
 
   Future<void> update(int id,
-          {required String displayName, required Role role, required bool active}) =>
-      _api.put('/admin/staff/$id',
-          {'displayName': displayName, 'role': role.name, 'active': active});
+          {required String displayName,
+          required Role role,
+          required bool active,
+          List<int> printerIds = const []}) =>
+      _api.put('/admin/staff/$id', {
+        'displayName': displayName,
+        'role': role.name,
+        'active': active,
+        'printerIds': printerIds,
+      });
 
   Future<void> resetPin(int id, String pin) =>
       _api.post('/admin/staff/$id/pin', {'pin': pin});

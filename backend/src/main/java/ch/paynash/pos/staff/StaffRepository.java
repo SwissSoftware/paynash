@@ -87,6 +87,31 @@ public class StaffRepository {
 		jdbc.sql("UPDATE staff SET failed_attempts = 0, locked_until = NULL WHERE id = ?").param(id).update();
 	}
 
+	/** The printers a station shows, by id. */
+	public List<Long> findStationPrinters(long stationId) {
+		return jdbc.sql("SELECT printer_id FROM station_printer WHERE station_id = ? ORDER BY printer_id")
+			.param(stationId)
+			.query(Long.class)
+			.list();
+	}
+
+	public void setStationPrinters(long stationId, List<Long> printerIds) {
+		jdbc.sql("DELETE FROM station_printer WHERE station_id = ?").param(stationId).update();
+		for (long printerId : printerIds) {
+			jdbc.sql("INSERT INTO station_printer (station_id, printer_id) VALUES (?, ?)")
+				.params(stationId, printerId)
+				.update();
+		}
+	}
+
+	/** How many of the given printer ids exist. */
+	public long countPrinters(List<Long> printerIds) {
+		return jdbc.sql("SELECT count(*) FROM printer WHERE id = ANY(?)")
+			.param(printerIds.toArray(Long[]::new))
+			.query(Long.class)
+			.single();
+	}
+
 	private Staff map(ResultSet rs, int row) throws SQLException {
 		Timestamp lockedUntil = rs.getTimestamp("locked_until");
 		return new Staff(rs.getLong("id"), rs.getString("username"), rs.getString("display_name"),

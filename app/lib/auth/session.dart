@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
 
-enum Role { admin, waiter }
+enum Role { admin, waiter, station }
 
 class Me {
   Me({required this.id, required this.username, required this.displayName, required this.role});
@@ -20,6 +20,9 @@ class Me {
   final Role role;
 
   bool get isAdmin => role == Role.admin;
+
+  /// A screen next to a printer; sees only the station view.
+  bool get isStation => role == Role.station;
 }
 
 enum SessionStatus { restoring, loggedOut, loggedIn }

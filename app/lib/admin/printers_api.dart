@@ -9,6 +9,8 @@ class PrinterData {
     required this.deviceId,
     required this.type,
     required this.active,
+    this.status = 'unknown',
+    this.stations = const [],
   });
 
   factory PrinterData.fromJson(Map<String, dynamic> json) => PrinterData(
@@ -18,6 +20,14 @@ class PrinterData {
         deviceId: json['deviceId'] as String,
         type: ItemType.values.byName(json['type'] as String),
         active: json['active'] as bool,
+        status: json['status'] as String? ?? 'unknown',
+        stations: [
+          for (final s in json['stations'] as List? ?? const [])
+            (
+              name: s['name'] as String,
+              lastSeenAt: s['lastSeenAt'] == null ? null : DateTime.parse(s['lastSeenAt'] as String),
+            ),
+        ],
       );
 
   final int id;
@@ -28,6 +38,13 @@ class PrinterData {
   /// Food goes to the kitchen printer, drinks to the bar printer.
   final ItemType type;
   final bool active;
+
+  /// The printer's last known state: ready, offline, paper end, ... or unknown.
+  final String status;
+
+  /// Stations showing this printer and when each last asked for its tickets,
+  /// so a station tablet that went to sleep is noticed.
+  final List<({String name, DateTime? lastSeenAt})> stations;
 }
 
 class PrintersApi {

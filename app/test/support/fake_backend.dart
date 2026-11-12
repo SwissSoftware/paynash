@@ -11,6 +11,7 @@ class FakeStaff {
   String role;
   String pin;
   bool active = true;
+  List<int> printerIds = [];
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -18,6 +19,7 @@ class FakeStaff {
     'displayName': displayName,
     'role': role,
     'active': active,
+    'printerIds': printerIds,
   };
 }
 
@@ -231,6 +233,9 @@ class FakeBackend {
     String? printer = 'Kitchen',
     String status = 'printed',
     String? error,
+    String? waitingReason,
+    String? label,
+    String? resolution,
     int? reprintOf,
   }) {
     final ticket = {
@@ -239,7 +244,10 @@ class FakeBackend {
       'type': type,
       'printer': printer,
       'status': status,
+      'waitingReason': waitingReason,
       'error': error,
+      'label': label,
+      'resolution': resolution,
       'reprintOf': reprintOf,
     };
     (order['tickets'] as List).add(ticket);
@@ -249,18 +257,23 @@ class FakeBackend {
   List<Map<String, dynamic>> _ticketsJson(Map<String, dynamic> o) {
     final tickets = (o['tickets'] as List).cast<Map<String, dynamic>>();
     return [
-      for (final t in tickets)
-        {...t, 'reprinted': tickets.any((r) => r['reprintOf'] == t['id'])},
+      for (final t in tickets) {...t, 'reprinted': tickets.any((r) => r['reprintOf'] == t['id'])},
     ];
   }
 
-  /// Like the backend: failed if any current ticket failed, else pending if
-  /// any is pending; tickets replaced by a reprint do not count.
+  /// Like the backend: failed if any current ticket failed, else unclear if
+  /// any is unclear, else pending if any waits or prints (with the reason);
+  /// tickets replaced by a reprint do not count.
   (String?, String?) _printStatus(Map<String, dynamic> o) {
     final current = _ticketsJson(o).where((t) => t['reprinted'] != true).toList();
-    final failed = current.where((t) => t['status'] == 'failed');
-    if (failed.isNotEmpty) return ('failed', failed.first['error'] as String?);
-    if (current.any((t) => t['status'] == 'pending')) return ('pending', null);
+    for (final status in ['failed', 'unclear']) {
+      final hit = current.where((t) => t['status'] == status);
+      if (hit.isNotEmpty) return (status, hit.first['error'] as String?);
+    }
+    final waiting = current.where((t) => t['status'] == 'pending' || t['status'] == 'printing');
+    if (waiting.isNotEmpty) {
+      return ('pending', waiting.map((t) => t['waitingReason'] as String?).nonNulls.firstOrNull);
+    }
     return (current.isEmpty ? null : 'printed', null);
   }
 
@@ -276,6 +289,8 @@ class FakeBackend {
       'note': note,
       'status': 'sent',
       'cancelReason': null,
+      'cancelledBy': null,
+      'cancelledAtStation': null,
     };
   }
 
@@ -298,6 +313,8 @@ class FakeBackend {
       'sentAt': o['sentAt'],
       'version': o['version'],
       'voidReason': o['voidReason'],
+      'voidedBy': o['voidedBy'],
+      'voidedAtStation': o['voidedAtStation'],
       'total': _chf(lines.fold(0, (sum, l) => sum + _lineTotal(l))),
       'lines': [
         for (final l in lines) {...l, 'lineTotal': _chf(_lineTotal(l))},
@@ -383,7 +400,10 @@ class FakeBackend {
       final original = (o['tickets'] as List).cast<Map<String, dynamic>>().firstWhere(
         (t) => t['id'] == int.parse(reprint.group(2)!),
       );
-      if (original['status'] == 'pending') return _problem(409, 'The ticket is still being printed');
+      if (original['status'] == 'pending' || original['status'] == 'printing') {
+        return _problem(409, 'The ticket is still being printed');
+      }
+      if (original['status'] == 'unclear') original['resolution'] = 'reprint';
       final ticket = addTicket(
         o,
         type: original['type'] as String,
@@ -418,7 +438,8 @@ class FakeBackend {
       if (line['status'] == 'cancelled') return _problem(409, 'The line is already cancelled');
       line
         ..['status'] = 'cancelled'
-        ..['cancelReason'] = reason;
+        ..['cancelReason'] = reason
+        ..['cancelledBy'] = me.displayName;
     } else {
       if (body['version'] != null && body['version'] != o['version']) {
         return _problem(409, 'The order was changed meanwhile. Please check it and try again.');
@@ -426,11 +447,13 @@ class FakeBackend {
       for (final l in lines.where((l) => l['status'] == 'sent')) {
         l
           ..['status'] = 'cancelled'
-          ..['cancelReason'] = reason;
+          ..['cancelReason'] = reason
+          ..['cancelledBy'] = me.displayName;
       }
       o
         ..['status'] = 'voided'
-        ..['voidReason'] = reason;
+        ..['voidReason'] = reason
+        ..['voidedBy'] = me.displayName;
     }
     o['version'] = (o['version'] as int) + 1;
     return _json(200, _orderJson(o));
@@ -479,7 +502,8 @@ class FakeBackend {
       (p) => p['id'] != id && p['active'] == true && p['type'] == body['type'],
     );
     if (body['active'] == true && other.isNotEmpty) {
-      errors['type'] = '"${other.first['name']}" already prints ${body['type']}. Deactivate it first.';
+      errors['type'] =
+          '"${other.first['name']}" already prints ${body['type']}. Deactivate it first.';
     }
     if (errors.isNotEmpty) return _problem(400, 'Validation failed', errors);
     if (id == null) {
@@ -493,6 +517,154 @@ class FakeBackend {
     }
     final p = printers.firstWhere((p) => p['id'] == id)..addAll(body);
     return _json(200, p);
+  }
+
+  // --- station
+
+  /// What `/station/printers` answers, as the station's assigned printers.
+  final stationPrinters = <Map<String, dynamic>>[];
+
+  /// Tickets per printer id, as `/station/tickets` lists them.
+  final stationTickets = <int, List<Map<String, dynamic>>>{};
+
+  /// Method, path, and body of every changing station request.
+  final stationWrites = <({String method, String path, Map<String, dynamic>? body})>[];
+
+  Map<String, dynamic> addStationPrinter(
+    String name, {
+    String status = 'ready',
+    int waiting = 0,
+    int unclear = 0,
+    String? lastPrintedLabel,
+    int? oldestWaitingSeconds,
+  }) {
+    final p = {
+      'id': _nextPrinterId++,
+      'name': name,
+      'status': status,
+      'waiting': waiting,
+      'unclear': unclear,
+      'lastPrintedLabel': lastPrintedLabel,
+      'oldestWaitingSeconds': oldestWaitingSeconds,
+    };
+    stationPrinters.add(p);
+    stationTickets[p['id'] as int] = [];
+    return p;
+  }
+
+  Map<String, dynamic> addStationTicket(
+    Map<String, dynamic> printer,
+    Map<String, dynamic> order, {
+    String status = 'printed',
+    String kind = 'normal',
+    String? label,
+    String? waitingReason,
+    String? error,
+    int lines = 1,
+  }) {
+    final t = {
+      'id': _nextTicketId++,
+      'orderId': order['id'],
+      'label': label,
+      'kind': kind,
+      'status': status,
+      'waitingReason': waitingReason,
+      'error': error,
+      'tableLabel': order['tableLabel'],
+      'waiter': order['waiter'],
+      'lines': lines,
+      'resolution': null,
+      'reprinted': false,
+      'needsResolution': status == 'unclear',
+      'createdAt': order['sentAt'],
+    };
+    stationTickets[printer['id'] as int]!.insert(0, t);
+    return t;
+  }
+
+  http.Response? _stationRoutes(http.Request r, Map<String, dynamic>? body, FakeStaff me) {
+    final path = r.url.path;
+    if (!path.startsWith('/station/')) return null;
+    if (me.role != 'station') return _problem(403, 'Forbidden');
+    if (r.method != 'GET') stationWrites.add((method: r.method, path: path, body: body));
+    if (path == '/station/printers') return _json(200, stationPrinters);
+    if (path == '/station/tickets') {
+      final tickets = stationTickets[int.parse(r.url.queryParameters['printerId']!)];
+      if (tickets == null) return _problem(403, 'This station does not show that printer');
+      final sorted = [
+        ...tickets.where((t) => t['needsResolution'] == true),
+        ...tickets.where((t) => t['needsResolution'] != true),
+      ];
+      final json = jsonEncode(sorted);
+      final etag = '"${json.hashCode}"';
+      if (r.headers['If-None-Match'] == etag) return http.Response('', 304);
+      return http.Response(
+        json,
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8', 'etag': etag},
+      );
+    }
+    final ticketAction = RegExp(r'^/station/tickets/(\d+)/(resolve|reprint)$').firstMatch(path);
+    if (ticketAction != null) {
+      final id = int.parse(ticketAction.group(1)!);
+      final entry = stationTickets.entries.firstWhere((e) => e.value.any((t) => t['id'] == id));
+      final ticket = entry.value.firstWhere((t) => t['id'] == id);
+      final reprint = ticketAction.group(2) == 'reprint' || body?['resolution'] == 'reprint';
+      if (ticketAction.group(2) == 'resolve') {
+        if (ticket['needsResolution'] != true) {
+          return _problem(409, 'The ticket was already resolved');
+        }
+        ticket
+          ..['needsResolution'] = false
+          ..['resolution'] = body!['resolution'];
+        if (!reprint) ticket['status'] = 'printed';
+      }
+      if (reprint) {
+        ticket['reprinted'] = true;
+        entry.value.insert(0, {
+          ...ticket,
+          'id': _nextTicketId++,
+          'kind': 'reprint',
+          'status': 'pending',
+          'needsResolution': false,
+          'reprinted': false,
+          'resolution': null,
+        });
+      }
+      return _json(200, {'id': ticket['id'], 'status': ticket['status']});
+    }
+    final orderMatch = RegExp(r'^/station/orders/(\d+)(?:/lines/(\d+)/cancel|/(void))?$')
+        .firstMatch(path);
+    if (orderMatch == null) return null;
+    final o = order(int.parse(orderMatch.group(1)!));
+    if (r.method == 'GET') return _json(200, _orderJson(o));
+    final who = staff.where(
+      (s) =>
+          s.username == body!['username'] &&
+          s.pin == body['pin'] &&
+          s.active &&
+          s.role != 'station',
+    );
+    if (who.isEmpty) return _problem(400, 'Validation failed', {'pin': 'Wrong username or PIN'});
+    final lines = (o['lines'] as List).cast<Map<String, dynamic>>();
+    final reason = body!['reason'] as String;
+    void cancel(Map<String, dynamic> l) => l
+      ..['status'] = 'cancelled'
+      ..['cancelReason'] = reason
+      ..['cancelledBy'] = who.first.displayName
+      ..['cancelledAtStation'] = me.displayName;
+    if (orderMatch.group(2) != null) {
+      cancel(lines.firstWhere((l) => l['id'] == int.parse(orderMatch.group(2)!)));
+    } else {
+      lines.where((l) => l['status'] == 'sent').forEach(cancel);
+      o
+        ..['status'] = 'voided'
+        ..['voidReason'] = reason
+        ..['voidedBy'] = who.first.displayName
+        ..['voidedAtStation'] = me.displayName;
+    }
+    o['version'] = (o['version'] as int) + 1;
+    return _json(200, _orderJson(o));
   }
 
   // --- export
@@ -617,6 +789,8 @@ class FakeBackend {
     if (path.startsWith('/admin/') && me.role != 'admin') {
       return _problem(403, 'Forbidden');
     }
+    final stationResponse = _stationRoutes(r, body, me);
+    if (stationResponse != null) return stationResponse;
     final exportResponse = _exportRoute(r, me);
     if (exportResponse != null) return exportResponse;
     final printerResponse = _printerRoutes(r, body);
@@ -630,6 +804,13 @@ class FakeBackend {
     if (path == '/admin/staff' && r.method == 'GET') {
       return _json(200, [for (final s in staff) s.toJson()]);
     }
+    if (path.startsWith('/admin/staff') && body?['role'] == 'station') {
+      if ((body!['printerIds'] as List? ?? const []).isEmpty) {
+        return _problem(400, 'Validation failed', {
+          'printerIds': 'A station needs at least one printer',
+        });
+      }
+    }
     if (path == '/admin/staff' && r.method == 'POST') {
       final username = body!['username'] as String;
       if (staff.any((s) => s.username.toLowerCase() == username.toLowerCase())) {
@@ -640,7 +821,7 @@ class FakeBackend {
         body['role'] as String,
         body['pin'] as String,
         displayName: body['displayName'] as String,
-      );
+      )..printerIds = [for (final id in body['printerIds'] as List? ?? const []) id as int];
       return _json(201, s.toJson());
     }
     final idMatch = RegExp(r'^/admin/staff/(\d+)(/pin)?$').firstMatch(path);
@@ -653,7 +834,10 @@ class FakeBackend {
       s
         ..displayName = body!['displayName'] as String
         ..role = body['role'] as String
-        ..active = body['active'] as bool;
+        ..active = body['active'] as bool
+        ..printerIds = s.role == 'station'
+            ? [for (final id in body['printerIds'] as List? ?? const []) id as int]
+            : [];
       if (!s.active) sessions.removeWhere((_, v) => v == s);
       return _json(200, s.toJson());
     }

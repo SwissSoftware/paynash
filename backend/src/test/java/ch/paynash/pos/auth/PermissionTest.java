@@ -1,11 +1,13 @@
 package ch.paynash.pos.auth;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 
 import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.support.IntegrationTest;
@@ -47,6 +49,34 @@ class PermissionTest extends IntegrationTest {
 		String token = login("boss", "1111");
 		mvc.perform(get("/admin/staff").header(HttpHeaders.AUTHORIZATION, bearer(token))).andExpect(status().isOk());
 		mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(token))).andExpect(status().isOk());
+	}
+
+	@Test
+	void stationReachesOnlyItsOwnSession() throws Exception {
+		createStaff("station-bar", Role.STATION, "5555");
+		String token = login("station-bar", "5555");
+		for (String path : new String[] { "/orders", "/menu", "/tables", "/admin/staff", "/admin/printers",
+				"/exports/orders.csv" }) {
+			mvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, bearer(token))).andExpect(status().isForbidden());
+		}
+		mvc.perform(post("/orders").header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"tableLabel\":\"1\",\"lines\":[]}")).andExpect(status().isForbidden());
+		mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.role").value("station"));
+		mvc.perform(post("/auth/logout").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+			.andExpect(status().isNoContent());
+	}
+
+	@Test
+	void waiterAndAdminCannotUseStationRoutes() throws Exception {
+		createStaff("anna", Role.WAITER, "4711");
+		createStaff("boss", Role.ADMIN, "1111");
+		for (String token : new String[] { login("anna", "4711"), login("boss", "1111") }) {
+			mvc.perform(get("/station/printers").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+				.andExpect(status().isForbidden());
+		}
 	}
 
 	@Test

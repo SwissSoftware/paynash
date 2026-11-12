@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import ch.paynash.pos.common.ApiException;
+import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.staff.Staff;
 import ch.paynash.pos.staff.StaffRepository;
 
@@ -26,6 +28,9 @@ import ch.paynash.pos.staff.StaffRepository;
 public class AuthService {
 
 	static final Duration SESSION_LIFETIME = Duration.ofHours(12);
+
+	/** A station stays logged in for a whole event day (harden-printing-for-events D6). */
+	static final Duration STATION_SESSION_LIFETIME = Duration.ofHours(24);
 
 	static final int MAX_FAILED_ATTEMPTS = 5;
 
@@ -61,25 +66,45 @@ public class AuthService {
 	@Transactional(noRollbackFor = ApiException.class)
 	public LoginResult login(String username, String pin) {
 		Instant now = clock.instant();
+		Staff account = verify(username, pin, now, AuthService::invalidCredentials);
+		sessions.deleteExpired(now);
+		String token = newToken();
+		Instant expiresAt = now.plus(account.role() == Role.STATION ? STATION_SESSION_LIFETIME : SESSION_LIFETIME);
+		sessions.insert(hashToken(token), account.id(), now, expiresAt);
+		return new LoginResult(token, expiresAt, account);
+	}
+
+	/**
+	 * Confirms a cancellation at a station with a staff member's own username and PIN (harden-printing-for-events
+	 * D7). Only active admin and waiter accounts can confirm. Wrong PINs count toward the same lockout as logins. The
+	 * answer is 400, not 401, so the station's own session is not mistaken for expired.
+	 */
+	@Transactional(noRollbackFor = ApiException.class)
+	public Staff confirm(String username, String pin) {
+		Staff account = verify(username, pin, clock.instant(), AuthService::wrongConfirmation);
+		if (account.role() == Role.STATION) {
+			throw wrongConfirmation();
+		}
+		return account;
+	}
+
+	/** Checks username and PIN, counting failures and locking the account after too many. */
+	private Staff verify(String username, String pin, Instant now, Supplier<ApiException> failure) {
 		Staff account = staff.findByUsername(username == null ? "" : username.trim()).orElse(null);
 		if (account == null || !account.active() || account.isLockedAt(now)) {
 			pins.burnTimeForUnknownUser(pin);
-			throw invalidCredentials();
+			throw failure.get();
 		}
 		if (!pins.matches(pin, account.pinHash())) {
 			if (staff.incrementFailedAttempts(account.id()) >= MAX_FAILED_ATTEMPTS) {
 				staff.lock(account.id(), now.plus(LOCKOUT));
-				log.warn("Account '{}' locked for {} after {} failed logins", account.username(), LOCKOUT,
+				log.warn("Account '{}' locked for {} after {} failed PIN attempts", account.username(), LOCKOUT,
 						MAX_FAILED_ATTEMPTS);
 			}
-			throw invalidCredentials();
+			throw failure.get();
 		}
 		staff.resetFailedLogins(account.id());
-		sessions.deleteExpired(now);
-		String token = newToken();
-		Instant expiresAt = now.plus(SESSION_LIFETIME);
-		sessions.insert(hashToken(token), account.id(), now, expiresAt);
-		return new LoginResult(token, expiresAt, account);
+		return account;
 	}
 
 	public Optional<AuthenticatedStaff> authenticate(String token) {
@@ -108,6 +133,12 @@ public class AuthService {
 
 	private static ApiException invalidCredentials() {
 		return new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+	}
+
+	static final String WRONG_CONFIRMATION = "Wrong username or PIN";
+
+	private static ApiException wrongConfirmation() {
+		return ApiException.validation("pin", WRONG_CONFIRMATION);
 	}
 
 }

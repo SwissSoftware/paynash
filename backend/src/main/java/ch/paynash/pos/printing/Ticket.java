@@ -40,6 +40,18 @@ public record Ticket(List<Row> rows) {
 		return new Ticket(marked);
 	}
 
+	/** The ticket with its running number on top, e.g. "BAR 0142" (design D3). */
+	public Ticket numbered(String printerName, int ticketNo) {
+		List<Row> numbered = new ArrayList<>();
+		numbered.add(new Row(true, label(printerName, ticketNo)));
+		numbered.addAll(rows);
+		return new Ticket(numbered);
+	}
+
+	public static String label(String printerName, int ticketNo) {
+		return printerName.toUpperCase() + " " + String.format("%04d", ticketNo);
+	}
+
 	static Builder builder() {
 		return new Builder();
 	}

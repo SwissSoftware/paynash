@@ -133,9 +133,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
               key: Key('print-warning-${t.id}'),
               color: Theme.of(context).colorScheme.errorContainer,
               child: ListTile(
-                leading: const Icon(Icons.print_disabled),
-                title: Text('${_ticketName(t)} failed: ${t.error}'),
-                subtitle: const Text('Fix the printer, then reprint the ticket.'),
+                leading: Icon(
+                  t.status == TicketStatus.unclear ? Icons.help_outline : Icons.print_disabled,
+                ),
+                title: Text(
+                  t.status == TicketStatus.unclear
+                      ? '${_ticketName(t)} unclear: ${t.error}'
+                      : '${_ticketName(t)} failed: ${t.error}',
+                ),
+                subtitle: Text(
+                  t.status == TicketStatus.unclear
+                      ? 'Check the tickets at the printer. Reprint only if it is missing.'
+                      : 'Fix the printer, then reprint the ticket.',
+                ),
                 trailing: FilledButton.tonal(
                   key: Key('print-warning-reprint-${t.id}'),
                   onPressed: canReprint ? () => _reprint(t) : null,
@@ -149,7 +159,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
               color: Theme.of(context).colorScheme.errorContainer,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                child: Text('Voided: ${order.voidReason}'),
+                child: Text(
+                  '${withWhom('Voided', order.voidedBy, order.voidedAtStation)}: '
+                  '${order.voidReason}',
+                ),
               ),
             ),
           Expanded(
@@ -167,9 +180,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
                     _TicketTile(
                       ticket: t,
                       name: _ticketName(t),
-                      onReprint: canReprint && t.status != TicketStatus.pending
-                          ? () => _reprint(t)
-                          : null,
+                      onReprint: canReprint && !t.inProgress ? () => _reprint(t) : null,
                     ),
                 ],
               ],
@@ -230,18 +241,29 @@ class _TicketTile extends StatelessWidget {
   final TicketData ticket;
   final String name;
 
-  /// Null while the ticket is still being printed.
+  /// Null while the ticket is waiting or being printed.
   final VoidCallback? onReprint;
 
   @override
   Widget build(BuildContext context) {
     final error = Theme.of(context).colorScheme.error;
+    final reprinted = ticket.reprinted ? ' · reprinted' : '';
     final (icon, status, color) = switch (ticket.status) {
-      TicketStatus.pending => (Icons.hourglass_top, 'Printing…', null),
+      TicketStatus.pending when ticket.waitingReason != null => (
+        Icons.hourglass_top,
+        'Waiting: ${ticket.waitingReason}',
+        null,
+      ),
+      TicketStatus.pending || TicketStatus.printing => (Icons.hourglass_top, 'Printing…', null),
       TicketStatus.printed => (Icons.check_circle_outline, 'Printed', null),
+      TicketStatus.unclear => (
+        Icons.help_outline,
+        'Unclear: ${ticket.error}$reprinted${ticket.resolution == 'printed' ? ' · found printed' : ''}',
+        ticket.needsAttention ? error : null,
+      ),
       TicketStatus.failed => (
         Icons.print_disabled,
-        'Failed: ${ticket.error}${ticket.reprinted ? ' · reprinted' : ''}',
+        'Failed: ${ticket.error}$reprinted',
         ticket.reprinted ? null : error,
       ),
     };
@@ -249,8 +271,12 @@ class _TicketTile extends StatelessWidget {
       key: Key('ticket-${ticket.id}'),
       dense: true,
       leading: Icon(icon, color: color),
-      title: Text(name),
-      subtitle: Text(status, key: Key('ticket-status-${ticket.id}'), style: TextStyle(color: color)),
+      title: Text(ticket.label == null ? name : '$name · ${ticket.label}'),
+      subtitle: Text(
+        status,
+        key: Key('ticket-status-${ticket.id}'),
+        style: TextStyle(color: color),
+      ),
       trailing: TextButton.icon(
         key: Key('ticket-reprint-${ticket.id}'),
         onPressed: onReprint,
@@ -274,7 +300,8 @@ class _LineTile extends StatelessWidget {
     final cancelled = line.status == LineStatus.cancelled;
     final subtitle = [
       if (line.note != null) line.note!,
-      if (cancelled) 'Cancelled: ${line.cancelReason}',
+      if (cancelled)
+        '${withWhom('Cancelled', line.cancelledBy, line.cancelledAtStation)}: ${line.cancelReason}',
     ].join('\n');
 
     return ListTile(

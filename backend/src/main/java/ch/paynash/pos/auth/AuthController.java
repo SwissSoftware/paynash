@@ -51,7 +51,8 @@ public class AuthController {
 	@PostMapping("/login")
 	@SecurityRequirements
 	@Operation(summary = "Log in with username and PIN",
-			description = "Returns a bearer token valid for 12 hours. Any failure answers 401 \"Invalid credentials\".")
+			description = "Returns a bearer token valid for 12 hours (24 hours for stations). Any failure answers 401 "
+					+ "\"Invalid credentials\".")
 	public LoginResponse login(@Valid @RequestBody LoginRequest request) {
 		var result = auth.login(request.username(), request.pin());
 		return new LoginResponse(result.token(), result.expiresAt(), Me.of(result.staff()));

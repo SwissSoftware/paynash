@@ -16,11 +16,14 @@ mixin Polling<T extends StatefulWidget> on State<T> {
   /// Loads fresh data. Implementations handle their own errors.
   Future<void> poll();
 
+  /// How often [poll] runs; screens that must react faster override it.
+  Duration get pollEvery => pollInterval;
+
   @override
   void initState() {
     super.initState();
     _lifecycle = AppLifecycleListener(onResume: _tick);
-    _timer = Timer.periodic(pollInterval, (_) => _tick());
+    _timer = Timer.periodic(pollEvery, (_) => _tick());
   }
 
   bool get _visible {

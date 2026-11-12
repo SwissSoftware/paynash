@@ -21,7 +21,7 @@ import ch.paynash.pos.menu.MenuRepository;
 import ch.paynash.pos.support.FakeEposPrinter;
 import ch.paynash.pos.support.IntegrationTest;
 
-abstract class PrintingTestSupport extends IntegrationTest {
+public abstract class PrintingTestSupport extends IntegrationTest {
 
 	@Autowired
 	protected MenuRepository menu;

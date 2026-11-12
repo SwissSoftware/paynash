@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../menu/item_visuals.dart';
 import '../menu/menu_models.dart';
+import '../orders/order_history_screen.dart' show formatTime;
 import 'printers_api.dart';
 
 /// Admin: the kitchen and bar printers, with a test print. Each type (food,
@@ -107,7 +108,18 @@ class _PrintersScreenState extends State<PrintersScreen> {
                                 ? null
                                 : const TextStyle(decoration: TextDecoration.lineThrough)),
                         subtitle: Text(
-                            '${p.address} · ${p.deviceId}${p.active ? '' : ' · inactive'}'),
+                          [
+                            '${p.address} · ${p.deviceId}${p.active ? '' : ' · inactive'}',
+                            if (p.active) 'Status: ${p.status}',
+                            for (final s in p.stations)
+                              '${s.name}: ${s.lastSeenAt == null ? 'never connected' : 'last seen ${formatTime(s.lastSeenAt!)}'}',
+                          ].join('\n'),
+                          key: Key('printer-info-${p.name}'),
+                          style: p.active && p.status != 'ready' && p.status != 'unknown'
+                              ? TextStyle(color: Theme.of(context).colorScheme.error)
+                              : null,
+                        ),
+                        isThreeLine: p.active || p.stations.isNotEmpty,
                         onTap: () => _openForm(p),
                         trailing: TextButton.icon(
                           key: Key('printer-test-${p.name}'),

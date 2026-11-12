@@ -31,6 +31,11 @@ class OpenApiTest extends IntegrationTest {
 		assertThat(api.getPaths()).containsKeys("/admin/printers", "/admin/printers/{id}", "/admin/printers/{id}/test",
 				"/orders/{orderId}/tickets/{ticketId}/reprint");
 		assertThat(api.getPaths()).containsKey("/exports/orders.csv");
+		assertThat(api.getPaths()).containsKeys("/station/printers", "/station/tickets", "/station/tickets/{id}/resolve",
+				"/station/tickets/{id}/reprint", "/station/orders/{id}", "/station/orders/{id}/lines/{lineId}/cancel",
+				"/station/orders/{id}/void");
+		assertThat(api.getPaths().get("/station/tickets/{id}/resolve").getPost().getParameters())
+			.anySatisfy(p -> assertThat(p.getName()).isEqualTo(IdempotencyFilter.HEADER));
 		assertThat(api.getPaths()).doesNotContainKeys("/orders/{id}/lines", "/orders/{id}/send");
 		assertThat(api.getPaths().get("/orders").getPost().getParameters())
 			.anySatisfy(p -> assertThat(p.getName()).isEqualTo(IdempotencyFilter.HEADER));

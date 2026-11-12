@@ -189,7 +189,14 @@ class _OrderTile extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final error = Theme.of(context).colorScheme.error;
     final voided = order.status == OrderStatus.voided;
-    final failed = order.printStatus == TicketStatus.failed;
+    final problem = switch (order.printStatus) {
+      TicketStatus.failed => 'Ticket failed: ${order.printError}',
+      TicketStatus.unclear => 'Ticket unclear: ${order.printError}',
+      TicketStatus.pending when order.printError != null => 'Ticket waiting: ${order.printError}',
+      _ => null,
+    };
+    final alarming =
+        order.printStatus == TicketStatus.failed || order.printStatus == TicketStatus.unclear;
     return ListTile(
       key: Key('history-order-${order.id}'),
       onTap: onTap,
@@ -204,11 +211,12 @@ class _OrderTile extends StatelessWidget {
       subtitle: Text(
         [
           '${formatTime(order.sentAt)} · ${order.waiter}${voided ? ' · Voided' : ''}',
-          if (failed) 'Ticket failed: ${order.printError}',
+          ?problem,
         ].join('\n'),
-        style: failed ? TextStyle(color: error) : null,
+        key: Key('history-subtitle-${order.id}'),
+        style: alarming ? TextStyle(color: error) : null,
       ),
-      isThreeLine: failed,
+      isThreeLine: problem != null,
       trailing: Text(
         'CHF ${order.total}',
         style: text.titleMedium?.copyWith(decoration: voided ? TextDecoration.lineThrough : null),
@@ -223,8 +231,12 @@ class _OrderTile extends StatelessWidget {
         message: 'Ticket failed',
         child: Icon(Icons.print_disabled, key: key, color: error, size: 18),
       ),
-      TicketStatus.pending => Tooltip(
-        message: 'Printing',
+      TicketStatus.unclear => Tooltip(
+        message: 'Ticket unclear',
+        child: Icon(Icons.help_outline, key: key, color: error, size: 18),
+      ),
+      TicketStatus.pending || TicketStatus.printing => Tooltip(
+        message: order.printError == null ? 'Printing' : 'Waiting: ${order.printError}',
         child: Icon(Icons.hourglass_top, key: key, size: 18),
       ),
       TicketStatus.printed => Tooltip(
