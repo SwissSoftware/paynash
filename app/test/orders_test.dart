@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:paynash_pos/orders/order_screen.dart';
 import 'package:paynash_pos/orders/polling.dart';
 
 import 'support/app_harness.dart';
@@ -194,7 +195,7 @@ void main() {
       app.backend.loseSendAnswers = 2;
 
       await send(tester);
-      expect(find.text('Not sent: no connection. Please try again.'), findsOneWidget);
+      expect(find.text(sendMaybeFailedMessage), findsOneWidget);
       expect(find.byKey(const Key('draft-line-0')), findsOneWidget);
       expect(find.byKey(const Key('no-connection')), findsOneWidget);
       expect(sendEnabled(tester), isFalse);
@@ -457,7 +458,7 @@ void main() {
       expect(find.text('Reason is required'), findsOneWidget);
       await enterReason(tester, 'guest changed mind');
 
-      expect(find.textContaining('Cancelled: guest changed mind'), findsOneWidget);
+      expect(find.textContaining('Cancelled by Boss: guest changed mind'), findsOneWidget);
       expect(total(tester), 'CHF 9.00');
       expect(find.byKey(Key('line-cancel-$pizza')), findsNothing);
       expect(
@@ -481,7 +482,7 @@ void main() {
       await enterReason(tester, 'wrong table');
 
       expect(order['status'], 'voided');
-      expect(find.text('Voided: wrong table'), findsOneWidget);
+      expect(find.text('Voided by Boss: wrong table'), findsOneWidget);
       expect(total(tester), 'CHF 0.00');
       expect(find.byKey(const Key('order-void')), findsNothing);
 

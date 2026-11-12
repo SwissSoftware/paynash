@@ -6,6 +6,8 @@ import java.time.Duration;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import ch.paynash.pos.menu.ItemType;
 import ch.paynash.pos.printing.EposClient.Result;
@@ -46,25 +48,36 @@ class EposClientTest {
 	@Test
 	void understandsRecordedAnswers() {
 		assertThat(EposClient.parse(FakeEposPrinter.response(true, ""))).isInstanceOf(Result.Printed.class);
-		assertThat(EposClient.parse(FakeEposPrinter.response(false, "EPTR_REC_EMPTY")))
-			.isEqualTo(new Result.Failed("paper end", true));
-		assertThat(EposClient.parse(FakeEposPrinter.response(false, "EPTR_COVER_OPEN")))
-			.isEqualTo(new Result.Failed("cover open", true));
-		assertThat(EposClient.parse(FakeEposPrinter.response(false, "DeviceNotFound")))
-			.isEqualTo(new Result.Failed("device ID not found on the printer", false));
-		assertThat(EposClient.parse(FakeEposPrinter.response(false, "EPTR_CUTTER")))
-			.isEqualTo(new Result.Failed("cutter error", false));
 		assertThat(EposClient.parse(FakeEposPrinter.response(false, "SOMETHING_NEW")))
-			.isEqualTo(new Result.Failed("printer error SOMETHING_NEW", false));
-		assertThat(EposClient.parse("<html>not epos</html>")).isEqualTo(new Result.Failed(EposClient.NO_ANSWER, false));
+			.isEqualTo(new Result.Unclear("printer error SOMETHING_NEW" + EposClient.CHECK));
+		assertThat(EposClient.parse("<html>not epos</html>")).isEqualTo(new Result.Unclear(EposClient.NO_ANSWER));
 		assertThat(EposClient.parse("<!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><response>&e;</response>"))
-			.isEqualTo(new Result.Failed(EposClient.NO_ANSWER, false));
+			.isEqualTo(new Result.Unclear(EposClient.NO_ANSWER));
+	}
+
+	/** Every printer code lands in the category that decides whether the ticket waits, is unclear, or fails (D1). */
+	@ParameterizedTest
+	@CsvSource({ "EPTR_REC_EMPTY, NotPrinted, paper end", "EPTR_COVER_OPEN, NotPrinted, cover open",
+			"EPTR_CUTTER, Unclear, cutter error", "EPTR_MECHANICAL, Unclear, mechanical error",
+			"EPTR_AUTOMATICAL, Unclear, printer error (automatic recovery)",
+			"EPTR_UNRECOVERABLE, Unclear, printer error (unrecoverable)",
+			"PrintSystemError, Unclear, print system error", "EX_BADPORT, Unclear, printer port error",
+			"EX_TIMEOUT, Unclear, printer timeout", "EX_SPOOLER, Unclear, printer spooler error",
+			"EX_ENPC_TIMEOUT, Unclear, printer timeout",
+			"DeviceNotFound, Failed, device ID not found on the printer", "SchemaError, Failed, invalid print data" })
+	void mapsEveryPrinterCodeToItsCategory(String code, String category, String message) {
+		Result result = EposClient.parse(FakeEposPrinter.response(false, code));
+
+		assertThat(result.getClass().getSimpleName()).isEqualTo(category);
+		assertThat(result.error()).startsWith(message);
+		if (result instanceof Result.Unclear) {
+			assertThat(result.error()).endsWith(EposClient.CHECK);
+		}
 	}
 
 	@Test
-	void unreachablePrinterIsOfflineAndSafeToRetry() {
-		assertThat(client.print(printer("127.0.0.1:1"), ticket()))
-			.isEqualTo(new Result.Failed(EposClient.OFFLINE, true));
+	void unreachablePrinterPrintedNothing() {
+		assertThat(client.print(printer("127.0.0.1:1"), ticket())).isEqualTo(new Result.NotPrinted(EposClient.OFFLINE));
 	}
 
 	@Test
@@ -72,7 +85,7 @@ class EposClientTest {
 		try (var fake = new FakeEposPrinter()) {
 			fake.answer(FakeEposPrinter.response(false, "EPTR_REC_EMPTY"));
 
-			assertThat(client.print(printer(fake.address()), ticket())).isEqualTo(new Result.Failed("paper end", true));
+			assertThat(client.print(printer(fake.address()), ticket())).isEqualTo(new Result.NotPrinted("paper end"));
 			assertThat(client.print(printer(fake.address()), ticket())).isInstanceOf(Result.Printed.class);
 			assertThat(fake.requests).hasSize(2).allSatisfy(r -> assertThat(r).contains("<text>Table 1&#10;</text>"));
 			assertThat(fake.queries).allSatisfy(q -> assertThat(q).isEqualTo("devid=local_printer&timeout=400"));
@@ -80,22 +93,31 @@ class EposClientTest {
 	}
 
 	@Test
-	void missingAnswerIsUnclearAndNotRetried() throws Exception {
+	void missingAnswerIsUnclear() throws Exception {
 		try (var fake = new FakeEposPrinter()) {
 			fake.answer(new FakeEposPrinter.Answer(200, FakeEposPrinter.SUCCESS, Duration.ofSeconds(2)));
 
-			assertThat(client.print(printer(fake.address()), ticket()))
-				.isEqualTo(new Result.Failed(EposClient.NO_ANSWER, false));
+			assertThat(client.print(printer(fake.address()), ticket())).isEqualTo(new Result.Unclear(EposClient.NO_ANSWER));
 		}
 	}
 
 	@Test
-	void eposDisabledIsReported() throws Exception {
+	void eposDisabledFails() throws Exception {
 		try (var fake = new FakeEposPrinter()) {
 			fake.answer(new FakeEposPrinter.Answer(404, "", Duration.ZERO));
 
 			assertThat(client.print(printer(fake.address()), ticket()))
-				.isEqualTo(new Result.Failed("ePOS-Print is not enabled on the printer", false));
+				.isEqualTo(new Result.Failed("ePOS-Print is not enabled on the printer"));
+		}
+	}
+
+	@Test
+	void otherHttpErrorIsUnclear() throws Exception {
+		try (var fake = new FakeEposPrinter()) {
+			fake.answer(new FakeEposPrinter.Answer(500, "", Duration.ZERO));
+
+			assertThat(client.print(printer(fake.address()), ticket()))
+				.isEqualTo(new Result.Unclear("printer answered HTTP 500" + EposClient.CHECK));
 		}
 	}
 

@@ -50,28 +50,34 @@ public class OrderController {
 		this.service = service;
 	}
 
-	/** {@code printStatus} is printed, pending, or failed (then with {@code printError}); null without tickets. */
+	/**
+	 * {@code printStatus} is printed, pending (waiting or printing), unclear, or failed, with {@code printError} the
+	 * error or the reason it waits; null without tickets.
+	 */
 	public record OrderSummaryView(long id, String tableLabel, OrderStatus status, String waiter, Instant sentAt,
 			String total, String printStatus, String printError) {
 	}
 
+	/** {@code cancelledBy} and {@code cancelledAtStation} name who cancelled the line and where, if it is cancelled. */
 	public record LineView(long id, long menuItemId, String name, ItemType type, String category, String unitPrice,
-			int qty, String note, LineStatus status, String lineTotal, String cancelReason) {
+			int qty, String note, LineStatus status, String lineTotal, String cancelReason, String cancelledBy,
+			String cancelledAtStation) {
 	}
 
 	public record OrderView(long id, String tableLabel, OrderStatus status, String waiter, Instant sentAt,
-			int version, String total, List<LineView> lines, String voidReason, List<TicketView> tickets) {
+			int version, String total, List<LineView> lines, String voidReason, String voidedBy,
+			String voidedAtStation, List<TicketView> tickets) {
 
-		static OrderView of(OrderService.OrderDetail d) {
+		public static OrderView of(OrderService.OrderDetail d) {
 			Order o = d.order();
 			List<LineView> lines = d.lines()
 				.stream()
 				.map(l -> new LineView(l.id(), l.menuItemId(), l.name(), l.type(), l.category(),
 						Money.format(l.unitPriceRappen()), l.qty(), l.note(), l.status(), Money.format(l.totalRappen()),
-						l.cancelReason()))
+						l.cancelReason(), l.cancelledByName(), l.cancelledAtStationName()))
 				.toList();
 			return new OrderView(o.id(), o.tableLabel(), o.status(), o.sentByName(), o.sentAt(), o.version(),
-					Money.format(d.totalRappen()), lines, o.voidReason(),
+					Money.format(d.totalRappen()), lines, o.voidReason(), o.voidedByName(), o.voidedAtStationName(),
 					d.tickets().stream().map(TicketView::of).toList());
 		}
 

@@ -30,14 +30,21 @@ public class StaffService {
 		return staff.findAll();
 	}
 
+	/** The printers a station shows; empty for other roles. */
+	public List<Long> stationPrinters(long id) {
+		return staff.findStationPrinters(id);
+	}
+
 	@Transactional
-	public Staff create(String username, String displayName, Role role, String pin) {
+	public Staff create(String username, String displayName, Role role, String pin, List<Long> printerIds) {
 		String name = username.trim();
 		if (staff.existsByUsername(name)) {
 			throw usernameTaken();
 		}
+		List<Long> printers = checkPrinters(role, printerIds);
 		try {
 			long id = staff.insert(name, displayName.trim(), role, pins.hash(pin));
+			staff.setStationPrinters(id, printers);
 			return get(id);
 		}
 		catch (DuplicateKeyException ex) {
@@ -47,13 +54,15 @@ public class StaffService {
 
 	/** Deactivating an account ends all its sessions immediately (design D7). */
 	@Transactional
-	public Staff update(long id, String displayName, Role role, boolean active) {
+	public Staff update(long id, String displayName, Role role, boolean active, List<Long> printerIds) {
 		Staff current = get(id);
+		List<Long> printers = checkPrinters(role, printerIds);
 		boolean losesAdmin = current.role() == Role.ADMIN && current.active() && (role != Role.ADMIN || !active);
 		if (losesAdmin && staff.countActiveAdmins() <= 1) {
 			throw new ApiException(HttpStatus.CONFLICT, "The last active admin cannot be deactivated or demoted");
 		}
 		staff.update(id, displayName.trim(), role, active);
+		staff.setStationPrinters(id, printers);
 		if (!active) {
 			sessions.deleteAllForStaff(id);
 		}
@@ -64,6 +73,24 @@ public class StaffService {
 	public void resetPin(long id, String pin) {
 		get(id);
 		staff.updatePin(id, pins.hash(pin));
+	}
+
+	/**
+	 * A station must show at least one existing printer (spec staff-access, "Staff accounts with roles"). Other roles
+	 * have no printers; any given are dropped.
+	 */
+	private List<Long> checkPrinters(Role role, List<Long> printerIds) {
+		if (role != Role.STATION) {
+			return List.of();
+		}
+		List<Long> ids = printerIds == null ? List.of() : printerIds.stream().distinct().toList();
+		if (ids.isEmpty()) {
+			throw ApiException.validation("printerIds", "A station needs at least one printer");
+		}
+		if (staff.countPrinters(ids) != ids.size()) {
+			throw ApiException.validation("printerIds", "Unknown printer");
+		}
+		return ids;
 	}
 
 	private Staff get(long id) {

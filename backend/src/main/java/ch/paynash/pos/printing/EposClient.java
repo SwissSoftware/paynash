@@ -3,6 +3,8 @@ package ch.paynash.pos.printing;
 import java.io.IOException;
 import java.io.StringReader;
 import java.net.ConnectException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -32,13 +34,32 @@ import org.xml.sax.InputSource;
 @Component
 public class EposClient {
 
-	/** Whether retrying is safe: only when the printer cannot have printed anything. */
+	/**
+	 * What happened to a ticket (design D1). {@link NotPrinted}: the printer certainly printed nothing and will be able
+	 * to later, so waiting is safe. {@link Unclear}: it may have printed, so it must not be sent again automatically.
+	 * {@link Failed}: it certainly did not print and cannot without a configuration change.
+	 */
 	public sealed interface Result {
 
+		/** The error to show, or null when printed. */
+		String error();
+
 		record Printed() implements Result {
+
+			@Override
+			public String error() {
+				return null;
+			}
+
 		}
 
-		record Failed(String error, boolean retryable) implements Result {
+		record NotPrinted(String error) implements Result {
+		}
+
+		record Unclear(String error) implements Result {
+		}
+
+		record Failed(String error) implements Result {
 		}
 
 	}
@@ -47,25 +68,31 @@ public class EposClient {
 
 	static final String NO_ANSWER = "no answer from printer; check the ticket and reprint if needed";
 
-	/** Errors where the printer did not start printing, so a retry cannot duplicate the ticket. */
-	private static final Map<String, Result.Failed> CODES = Map.ofEntries(
-			Map.entry("EPTR_REC_EMPTY", new Result.Failed("paper end", true)),
-			Map.entry("EPTR_COVER_OPEN", new Result.Failed("cover open", true)),
-			Map.entry("EPTR_CUTTER", new Result.Failed("cutter error", false)),
-			Map.entry("EPTR_MECHANICAL", new Result.Failed("mechanical error", false)),
-			Map.entry("EPTR_AUTOMATICAL", new Result.Failed("printer error (automatic recovery)", false)),
-			Map.entry("EPTR_UNRECOVERABLE", new Result.Failed("printer error (unrecoverable)", false)),
-			Map.entry("DeviceNotFound", new Result.Failed("device ID not found on the printer", false)),
-			Map.entry("SchemaError", new Result.Failed("invalid print data", false)),
-			Map.entry("PrintSystemError", new Result.Failed("print system error", false)),
-			Map.entry("EX_BADPORT", new Result.Failed("printer port error", false)),
-			Map.entry("EX_TIMEOUT", new Result.Failed("printer timeout; check the ticket and reprint if needed", false)),
-			Map.entry("EX_SPOOLER", new Result.Failed("printer spooler error", false)),
-			Map.entry("EX_ENPC_TIMEOUT", new Result.Failed("printer timeout; check the ticket and reprint if needed", false)));
+	static final String CHECK = "; check the ticket and reprint if needed";
+
+	private static final Map<String, Result> CODES = Map.ofEntries(
+			// The printer did not start printing and recovers once staff fix it.
+			Map.entry("EPTR_REC_EMPTY", new Result.NotPrinted("paper end")),
+			Map.entry("EPTR_COVER_OPEN", new Result.NotPrinted("cover open")),
+			// The printer may have printed part or all of the ticket.
+			Map.entry("EPTR_CUTTER", new Result.Unclear("cutter error" + CHECK)),
+			Map.entry("EPTR_MECHANICAL", new Result.Unclear("mechanical error" + CHECK)),
+			Map.entry("EPTR_AUTOMATICAL", new Result.Unclear("printer error (automatic recovery)" + CHECK)),
+			Map.entry("EPTR_UNRECOVERABLE", new Result.Unclear("printer error (unrecoverable)" + CHECK)),
+			Map.entry("PrintSystemError", new Result.Unclear("print system error" + CHECK)),
+			Map.entry("EX_BADPORT", new Result.Unclear("printer port error" + CHECK)),
+			Map.entry("EX_TIMEOUT", new Result.Unclear("printer timeout" + CHECK)),
+			Map.entry("EX_SPOOLER", new Result.Unclear("printer spooler error" + CHECK)),
+			Map.entry("EX_ENPC_TIMEOUT", new Result.Unclear("printer timeout" + CHECK)),
+			// Rejected before printing because of the configuration or the data.
+			Map.entry("DeviceNotFound", new Result.Failed("device ID not found on the printer")),
+			Map.entry("SchemaError", new Result.Failed("invalid print data")));
 
 	private final HttpClient http;
 
 	private final Duration eposTimeout;
+
+	private final Duration connectTimeout;
 
 	public EposClient(@Value("${pos.printing.connect-timeout:3s}") Duration connectTimeout,
 			@Value("${pos.printing.epos-timeout:10s}") Duration eposTimeout) {
@@ -74,6 +101,23 @@ public class EposClient {
 			.followRedirects(HttpClient.Redirect.NEVER)
 			.build();
 		this.eposTimeout = eposTimeout;
+		this.connectTimeout = connectTimeout;
+	}
+
+	/**
+	 * Whether the printer accepts a connection, without printing anything (design D4, baseline). Used to watch idle
+	 * printers.
+	 */
+	public boolean reachable(Printer printer) {
+		URI uri = uri(printer);
+		int port = uri.getPort() != -1 ? uri.getPort() : "https".equals(uri.getScheme()) ? 443 : 80;
+		try (var socket = new Socket()) {
+			socket.connect(new InetSocketAddress(uri.getHost(), port), (int) connectTimeout.toMillis());
+			return true;
+		}
+		catch (IOException | IllegalArgumentException ex) {
+			return false;
+		}
 	}
 
 	public Result print(Printer printer, Ticket ticket) {
@@ -89,25 +133,25 @@ public class EposClient {
 			response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 		}
 		catch (HttpConnectTimeoutException | ConnectException | UnresolvedAddressException ex) {
-			return new Result.Failed(OFFLINE, true);
+			return new Result.NotPrinted(OFFLINE);
 		}
 		catch (HttpTimeoutException ex) {
-			return new Result.Failed(NO_ANSWER, false);
+			return new Result.Unclear(NO_ANSWER);
 		}
 		catch (IOException ex) {
 			// The connection broke after it was opened: the ticket may or may not have printed.
 			return ex.getCause() instanceof ConnectException || ex.getCause() instanceof UnresolvedAddressException
-					? new Result.Failed(OFFLINE, true) : new Result.Failed(NO_ANSWER, false);
+					? new Result.NotPrinted(OFFLINE) : new Result.Unclear(NO_ANSWER);
 		}
 		catch (InterruptedException ex) {
 			Thread.currentThread().interrupt();
-			return new Result.Failed(NO_ANSWER, false);
+			return new Result.Unclear(NO_ANSWER);
 		}
 		if (response.statusCode() == 404) {
-			return new Result.Failed("ePOS-Print is not enabled on the printer", false);
+			return new Result.Failed("ePOS-Print is not enabled on the printer");
 		}
 		if (response.statusCode() != 200) {
-			return new Result.Failed("printer answered HTTP " + response.statusCode(), false);
+			return new Result.Unclear("printer answered HTTP " + response.statusCode() + CHECK);
 		}
 		return parse(response.body());
 	}
@@ -128,13 +172,13 @@ public class EposClient {
 			answer = null;
 		}
 		if (answer == null) {
-			return new Result.Failed(NO_ANSWER, false);
+			return new Result.Unclear(NO_ANSWER);
 		}
 		if ("true".equals(answer.getAttribute("success"))) {
 			return new Result.Printed();
 		}
 		String code = answer.getAttribute("code");
-		return CODES.getOrDefault(code, new Result.Failed("printer error " + code, false));
+		return CODES.getOrDefault(code, new Result.Unclear("printer error " + code + CHECK));
 	}
 
 	URI uri(Printer printer) {

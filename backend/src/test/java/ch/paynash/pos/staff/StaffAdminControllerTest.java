@@ -131,6 +131,52 @@ class StaffAdminControllerTest extends IntegrationTest {
 	}
 
 	@Test
+	void stationAccountShowsItsPrintersAndCanLogIn() throws Exception {
+		long bar = printer("Bar");
+		mvc.perform(post("/admin/staff").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"username\":\"station-bar\",\"displayName\":\"Station Bar\",\"role\":\"station\","
+					+ "\"pin\":\"5555\",\"printerIds\":[" + bar + "]}"))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.role").value("station"))
+			.andExpect(jsonPath("$.printerIds[0]").value(bar));
+		login("station-bar", "5555");
+	}
+
+	@Test
+	void stationWithoutOrWithUnknownPrinterIsRejected() throws Exception {
+		mvc.perform(post("/admin/staff").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(json("username", "station-bar", "displayName", "Station Bar", "role", "station", "pin", "5555")))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.printerIds").value("A station needs at least one printer"));
+		mvc.perform(post("/admin/staff").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"username\":\"station-bar\",\"displayName\":\"Station Bar\",\"role\":\"station\","
+					+ "\"pin\":\"5555\",\"printerIds\":[999999]}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.printerIds").value("Unknown printer"));
+		assertThat(jdbc.sql("SELECT count(*) FROM staff WHERE role = 'station'").query(Long.class).single()).isZero();
+	}
+
+	@Test
+	void editingAStationKeepsPrintersRequiredAndOtherRolesHaveNone() throws Exception {
+		long bar = printer("Bar");
+		long kitchen = printer("Kitchen");
+		long station = createStation("station", "5555", bar);
+
+		mvc.perform(put("/admin/staff/" + station).header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"displayName\":\"Station\",\"role\":\"station\",\"active\":true,\"printerIds\":[" + bar
+					+ "," + kitchen + "]}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.printerIds.length()").value(2));
+		update(station, "Station", "station", true).andExpect(status().isBadRequest());
+		update(station, "Now a waiter", "waiter", true).andExpect(status().isOk())
+			.andExpect(jsonPath("$.printerIds.length()").value(0));
+	}
+
+	@Test
 	void unknownIdGives404() throws Exception {
 		update(999_999, "X", "waiter", true).andExpect(status().isNotFound());
 	}
@@ -139,6 +185,14 @@ class StaffAdminControllerTest extends IntegrationTest {
 		return mvc.perform(post("/admin/staff").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(json("username", username, "displayName", username, "role", "waiter", "pin", pin)));
+	}
+
+	private long printer(String name) {
+		return jdbc.sql("INSERT INTO printer (name, address, item_type, active) VALUES (?, '10.0.0.9', ?, false) "
+				+ "RETURNING id")
+			.params(name, name.equals("Bar") ? "drink" : "food")
+			.query(Long.class)
+			.single();
 	}
 
 	private ResultActions update(long id, String displayName, String role, boolean active) throws Exception {

@@ -35,15 +35,19 @@ class OrderSummary {
   final String total;
 
   /// The state of the order's tickets, ignoring tickets that were reprinted:
-  /// failed if any failed (with [printError]), else pending if any is still
-  /// printing. Null when the order has no tickets.
+  /// failed if any failed, else unclear if any may or may not have printed,
+  /// else pending if any is waiting or printing. [printError] is the error, or
+  /// the reason a ticket waits (e.g. "paper end"). Null without tickets.
   final TicketStatus? printStatus;
   final String? printError;
 }
 
 enum OrderStatus { sent, voided }
 
-enum TicketStatus { pending, printed, failed }
+/// pending: waiting for its turn or for the printer (offline, paper end);
+/// printing: at the printer right now; unclear: may or may not have printed;
+/// failed: certainly not printed, the configuration must be fixed.
+enum TicketStatus { pending, printing, printed, unclear, failed }
 
 enum TicketKind { normal, storno, reprint }
 
@@ -57,6 +61,9 @@ class TicketData {
     required this.reprinted,
     this.printer,
     this.error,
+    this.waitingReason,
+    this.label,
+    this.resolution,
   });
 
   factory TicketData.fromJson(Map<String, dynamic> json) => TicketData(
@@ -66,6 +73,9 @@ class TicketData {
     printer: json['printer'] as String?,
     status: TicketStatus.values.byName(json['status'] as String),
     error: json['error'] as String?,
+    waitingReason: json['waitingReason'] as String?,
+    label: json['label'] as String?,
+    resolution: json['resolution'] as String?,
     reprinted: json['reprinted'] as bool? ?? false,
   );
 
@@ -78,11 +88,26 @@ class TicketData {
   final TicketStatus status;
   final String? error;
 
+  /// Why a pending ticket waits, e.g. "paper end".
+  final String? waitingReason;
+
+  /// The running ticket number, e.g. "BAR 0142".
+  final String? label;
+
+  /// How station staff resolved an unclear ticket ("printed" or "reprint").
+  final String? resolution;
+
   /// A later reprint replaces this ticket.
   final bool reprinted;
 
-  /// Failed and not yet replaced by a reprint: staff need to act.
-  bool get needsAttention => status == TicketStatus.failed && !reprinted;
+  /// Waiting or at the printer, so it cannot be reprinted yet.
+  bool get inProgress => status == TicketStatus.pending || status == TicketStatus.printing;
+
+  /// Failed, or unclear and not yet resolved, and not replaced by a reprint:
+  /// staff need to act.
+  bool get needsAttention =>
+      !reprinted &&
+      (status == TicketStatus.failed || (status == TicketStatus.unclear && resolution == null));
 }
 
 enum LineStatus { sent, cancelled }
@@ -99,6 +124,8 @@ class OrderLineData {
     required this.lineTotal,
     this.note,
     this.cancelReason,
+    this.cancelledBy,
+    this.cancelledAtStation,
   });
 
   factory OrderLineData.fromJson(Map<String, dynamic> json) => OrderLineData(
@@ -112,6 +139,8 @@ class OrderLineData {
     status: LineStatus.values.byName(json['status'] as String),
     lineTotal: json['lineTotal'] as String,
     cancelReason: json['cancelReason'] as String?,
+    cancelledBy: json['cancelledBy'] as String?,
+    cancelledAtStation: json['cancelledAtStation'] as String?,
   );
 
   final int id;
@@ -124,6 +153,10 @@ class OrderLineData {
   final LineStatus status;
   final String lineTotal;
   final String? cancelReason;
+
+  /// Who cancelled the line, and the station where it was confirmed (if any).
+  final String? cancelledBy;
+  final String? cancelledAtStation;
 }
 
 /// A sent order. It is final; only an admin can cancel lines or void it.
@@ -139,6 +172,8 @@ class OrderData {
     required this.lines,
     this.tickets = const [],
     this.voidReason,
+    this.voidedBy,
+    this.voidedAtStation,
   });
 
   factory OrderData.fromJson(Map<String, dynamic> json) => OrderData(
@@ -150,6 +185,8 @@ class OrderData {
     version: json['version'] as int,
     total: json['total'] as String,
     voidReason: json['voidReason'] as String?,
+    voidedBy: json['voidedBy'] as String?,
+    voidedAtStation: json['voidedAtStation'] as String?,
     lines: [
       for (final l in json['lines'] as List) OrderLineData.fromJson(l as Map<String, dynamic>),
     ],
@@ -171,7 +208,14 @@ class OrderData {
   final List<OrderLineData> lines;
   final List<TicketData> tickets;
   final String? voidReason;
+  final String? voidedBy;
+  final String? voidedAtStation;
 }
+
+/// "Cancelled by Anna at Station Bar", "Cancelled by Boss", or just
+/// "Cancelled" when unknown.
+String withWhom(String action, String? who, String? station) =>
+    [action, if (who != null) 'by $who', if (station != null) 'at $station'].join(' ');
 
 /// A line of the order being built on this device. Nothing is stored on the
 /// server until the whole order is sent.

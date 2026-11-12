@@ -64,6 +64,10 @@ public class PrinterService {
 		return epos.print(printer, renderer.testTicket(printer));
 	}
 
+	public List<PrinterRepository.StationSeen> stationsShowing(long printerId) {
+		return printers.stationsShowing(printerId);
+	}
+
 	public Printer get(long id) {
 		return printers.findById(id).orElseThrow(() -> ApiException.notFound("Printer"));
 	}

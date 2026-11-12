@@ -1,5 +1,6 @@
 package ch.paynash.pos.printing;
 
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
@@ -28,16 +29,26 @@ public class PrinterAdminController {
 
 	private final PrinterService service;
 
-	public PrinterAdminController(PrinterService service) {
+	private final PrinterStatusMonitor monitor;
+
+	public PrinterAdminController(PrinterService service, PrinterStatusMonitor monitor) {
 		this.service = service;
+		this.monitor = monitor;
 	}
 
-	public record PrinterView(long id, String name, String address, String deviceId, ItemType type, boolean active) {
+	/**
+	 * {@code status} is the printer's last known state and {@code statusCheckedAt} when it was seen.
+	 * {@code stations} are the active stations showing the printer, each with the time of its last poll.
+	 */
+	public record PrinterView(long id, String name, String address, String deviceId, ItemType type, boolean active,
+			PrinterState status, Instant statusCheckedAt, List<PrinterRepository.StationSeen> stations) {
 
-		static PrinterView of(Printer p) {
-			return new PrinterView(p.id(), p.name(), p.address(), p.deviceId(), p.itemType(), p.active());
-		}
+	}
 
+	private PrinterView view(Printer p) {
+		PrinterStatusMonitor.Status s = monitor.status(p.id());
+		return new PrinterView(p.id(), p.name(), p.address(), p.deviceId(), p.itemType(), p.active(), s.state(),
+				s.checkedAt(), service.stationsShowing(p.id()));
 	}
 
 	public record PrinterRequest(@NotBlank @Size(max = 60) String name,
@@ -58,30 +69,28 @@ public class PrinterAdminController {
 	@GetMapping
 	@Operation(summary = "List all printers")
 	public List<PrinterView> list() {
-		return service.list().stream().map(PrinterView::of).toList();
+		return service.list().stream().map(this::view).toList();
 	}
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
 	@Operation(summary = "Add a printer", description = "At most one active printer per type (food or drink).")
 	public PrinterView create(@Valid @RequestBody PrinterRequest r) {
-		return PrinterView.of(service.create(r.toInput()));
+		return view(service.create(r.toInput()));
 	}
 
 	@PutMapping("/{id}")
 	@Operation(summary = "Edit, deactivate, or reactivate a printer",
 			description = "Tickets already queued for this printer are still sent to it.")
 	public PrinterView update(@PathVariable long id, @Valid @RequestBody PrinterRequest r) {
-		return PrinterView.of(service.update(id, r.toInput()));
+		return view(service.update(id, r.toInput()));
 	}
 
 	@PostMapping("/{id}/test")
 	@Operation(summary = "Print a test ticket now and report whether it worked")
 	public TestPrintView testPrint(@PathVariable long id) {
-		return switch (service.testPrint(id)) {
-			case EposClient.Result.Printed p -> new TestPrintView(true, null);
-			case EposClient.Result.Failed f -> new TestPrintView(false, f.error());
-		};
+		EposClient.Result result = service.testPrint(id);
+		return new TestPrintView(result instanceof EposClient.Result.Printed, result.error());
 	}
 
 }

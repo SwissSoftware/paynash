@@ -2,12 +2,21 @@ package ch.paynash.pos.printing;
 
 import java.time.Instant;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+
 import ch.paynash.pos.menu.ItemType;
 
-/** One ticket in the outbox (design D3). {@code printerId} is null when no printer was configured. */
+/**
+ * One ticket in the outbox (design D3, and D1 of harden-printing-for-events). {@code printerId} and {@code ticketNo}
+ * are null when no printer was configured. {@code waitingReason} says why a pending ticket waits; {@code lastError} is
+ * the error of an unclear or failed ticket. {@code resolution} is set once station staff resolved an unclear ticket,
+ * or when it was reprinted.
+ */
 public record PrintJob(long id, long orderId, ItemType itemType, Long printerId, String printerName, Kind kind,
-		String content, Status status, int attempts, String lastError, Instant firstAttemptAt, Instant nextAttemptAt,
-		Long reprintOf, boolean reprinted, Instant createdAt) {
+		String content, Status status, int attempts, String waitingReason, String lastError, Instant firstAttemptAt,
+		Instant nextAttemptAt, Long reprintOf, boolean reprinted, Integer ticketNo, int lineCount,
+		Resolution resolution, Instant resolvedAt, Instant createdAt) {
 
 	public enum Kind {
 
@@ -25,7 +34,7 @@ public record PrintJob(long id, long orderId, ItemType itemType, Long printerId,
 
 	public enum Status {
 
-		PENDING, PRINTED, FAILED;
+		PENDING, PRINTING, PRINTED, UNCLEAR, FAILED;
 
 		public String dbValue() {
 			return name().toLowerCase();
@@ -35,6 +44,35 @@ public record PrintJob(long id, long orderId, ItemType itemType, Long printerId,
 			return valueOf(value.toUpperCase());
 		}
 
+	}
+
+	public enum Resolution {
+
+		/** Staff found the ticket in the pile. */
+		PRINTED,
+		/** Staff had it printed again. */
+		REPRINT;
+
+		@JsonValue
+		public String dbValue() {
+			return name().toLowerCase();
+		}
+
+		@JsonCreator
+		public static Resolution fromDb(String value) {
+			return value == null ? null : valueOf(value.toUpperCase());
+		}
+
+	}
+
+	/** Waiting or being printed, so it must not be reprinted yet. */
+	public boolean inProgress() {
+		return status == Status.PENDING || status == Status.PRINTING;
+	}
+
+	/** An unclear ticket that still needs a decision from station staff. */
+	public boolean needsResolution() {
+		return status == Status.UNCLEAR && resolution == null;
 	}
 
 }

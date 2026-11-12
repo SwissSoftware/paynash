@@ -22,7 +22,7 @@ public class OpenApiConfig {
 	@Bean
 	OpenApiCustomizer idempotencyKeyHeader() {
 		return api -> api.getPaths().forEach((path, item) -> {
-			if (!(path.startsWith("/orders") || path.startsWith("/admin/orders"))) {
+			if (!(path.startsWith("/orders") || path.startsWith("/admin/orders") || path.startsWith("/station"))) {
 				return;
 			}
 			item.readOperationsMap().forEach((method, operation) -> {

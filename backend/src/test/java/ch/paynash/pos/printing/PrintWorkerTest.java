@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,7 +18,8 @@ import ch.paynash.pos.support.FakeEposPrinter;
 
 /**
  * Delivery of queued tickets against a fake printer (spec ticket-printing, "Print status, retry, and failure
- * visibility" and "No duplicate production tickets").
+ * visibility", "Wait for the printer instead of failing", "Crash-safe delivery", and "No duplicate production
+ * tickets").
  */
 @TestPropertySource(properties = "pos.printing.epos-timeout=300ms")
 class PrintWorkerTest extends PrintingTestSupport {
@@ -51,20 +54,26 @@ class PrintWorkerTest extends PrintingTestSupport {
 	}
 
 	@Test
-	void offlinePrinterIsRetriedForAtLeastAMinuteThenFails() throws Exception {
-		printer("Kitchen", OFFLINE, ItemType.FOOD);
+	void offlinePrinterIsWaitedForWithoutLimitAndPrintsOnceReachable() throws Exception {
+		long kitchenId = printer("Kitchen", OFFLINE, ItemType.FOOD);
 		long id = sendOrder(waiter, "12", line(pizza, 1));
-		Instant start = clock.instant();
 
-		Instant failedAt = runUntilDone(id, ItemType.FOOD);
+		runFor(Duration.ofMinutes(10));
 
 		PrintJob job = job(id, ItemType.FOOD);
-		assertThat(job.status()).isEqualTo(PrintJob.Status.FAILED);
-		assertThat(job.lastError()).isEqualTo("printer offline");
-		assertThat(Duration.between(start, failedAt)).isGreaterThanOrEqualTo(Duration.ofSeconds(60));
-		assertThat(job.attempts()).isGreaterThan(3);
-		as(waiter, get("/orders")).andExpect(jsonPath("$[0].printStatus").value("failed"))
+		assertThat(job.status()).isEqualTo(PrintJob.Status.PENDING);
+		assertThat(job.waitingReason()).isEqualTo("printer offline");
+		assertThat(job.attempts()).isGreaterThan(30);
+		as(waiter, get("/orders")).andExpect(jsonPath("$[0].printStatus").value("pending"))
 			.andExpect(jsonPath("$[0].printError").value("printer offline"));
+
+		var kitchen = fakePrinter();
+		printerRepository.update(kitchenId, "Kitchen", kitchen.address(), "local_printer", ItemType.FOOD, true);
+		runFor(Duration.ofSeconds(20));
+
+		assertThat(kitchen.requests).hasSize(1);
+		assertThat(job(id, ItemType.FOOD).status()).isEqualTo(PrintJob.Status.PRINTED);
+		assertThat(job(id, ItemType.FOOD).waitingReason()).isNull();
 	}
 
 	@Test
@@ -94,22 +103,82 @@ class PrintWorkerTest extends PrintingTestSupport {
 	}
 
 	@Test
-	void paperEndThatStaysIsReportedAsPaperEnd() throws Exception {
-		var kitchen = fakePrinter();
-		printer("Kitchen", kitchen.address(), ItemType.FOOD);
-		for (int i = 0; i < 50; i++) {
-			kitchen.answer(FakeEposPrinter.response(false, "EPTR_REC_EMPTY"));
+	void longPaperChangePrintsAllWaitingTicketsInOrderWithoutFailing() throws Exception {
+		var bar = fakePrinter();
+		printer("Bar", bar.address(), ItemType.DRINK);
+		bar.paperEnd(true);
+		List<Long> orders = new ArrayList<>();
+		for (int i = 1; i <= 5; i++) {
+			orders.add(sendOrder(waiter, "T" + i, line(cola, i)));
+			runFor(Duration.ofSeconds(45));
 		}
-		long id = sendOrder(waiter, "12", line(pizza, 1));
+		assertThat(orders).allSatisfy(o -> assertThat(job(o, ItemType.DRINK).status()).isEqualTo(PrintJob.Status.PENDING));
+		// Only the first ticket is tried; the others wait behind it.
+		assertThat(job(orders.get(0), ItemType.DRINK).waitingReason()).isEqualTo("paper end");
+		assertThat(bar.requests).allSatisfy(r -> assertThat(r).contains("Table T1"));
 
-		runUntilDone(id, ItemType.FOOD);
+		bar.paperEnd(false);
+		runFor(Duration.ofSeconds(20));
 
-		assertThat(job(id, ItemType.FOOD).status()).isEqualTo(PrintJob.Status.FAILED);
-		assertThat(job(id, ItemType.FOOD).lastError()).isEqualTo("paper end");
+		assertThat(orders).allSatisfy(o -> assertThat(job(o, ItemType.DRINK).status()).isEqualTo(PrintJob.Status.PRINTED));
+		List<String> printed = bar.printedTickets();
+		assertThat(printed).hasSize(5);
+		for (int i = 0; i < 5; i++) {
+			assertThat(printed.get(i)).contains("Table T" + (i + 1));
+		}
 	}
 
 	@Test
-	void unclearOutcomeFailsWithoutRetrying() throws Exception {
+	void wrongDeviceIdFailsAtOnce() throws Exception {
+		var bar = fakePrinter();
+		printer("Bar", bar.address(), ItemType.DRINK);
+		bar.answer(FakeEposPrinter.response(false, "DeviceNotFound"));
+		long id = sendOrder(waiter, "12", line(cola, 1));
+
+		worker.deliverDue();
+
+		assertThat(job(id, ItemType.DRINK).status()).isEqualTo(PrintJob.Status.FAILED);
+		assertThat(job(id, ItemType.DRINK).lastError()).isEqualTo("device ID not found on the printer");
+	}
+
+	@Test
+	void ticketLeftInPrintingAtStartupBecomesUnclearAndIsNotSentAgain() throws Exception {
+		var bar = fakePrinter();
+		printer("Bar", bar.address(), ItemType.DRINK);
+		long id = sendOrder(waiter, "12", line(cola, 1));
+		long jobId = job(id, ItemType.DRINK).id();
+		// The process stopped after the ticket was handed to the printer but before the answer was recorded.
+		jobRepository.startAttempt(jobId, clock.instant());
+
+		worker.recoverInterrupted();
+		worker.deliverDue();
+		clock.advance(Duration.ofMinutes(5));
+		worker.deliverDue();
+
+		assertThat(bar.requests).isEmpty();
+		PrintJob job = job(id, ItemType.DRINK);
+		assertThat(job.status()).isEqualTo(PrintJob.Status.UNCLEAR);
+		assertThat(job.lastError()).isEqualTo(PrintWorker.INTERRUPTED);
+		assertThat(job.needsResolution()).isTrue();
+	}
+
+	@Test
+	void ticketIsMarkedPrintingWhileThePrinterHasIt() throws Exception {
+		var bar = fakePrinter();
+		printer("Bar", bar.address(), ItemType.DRINK);
+		long id = sendOrder(waiter, "12", line(cola, 1));
+		bar.onRequest(() -> statusSeenByPrinter = job(id, ItemType.DRINK).status());
+
+		worker.deliverDue();
+
+		assertThat(statusSeenByPrinter).isEqualTo(PrintJob.Status.PRINTING);
+		assertThat(job(id, ItemType.DRINK).status()).isEqualTo(PrintJob.Status.PRINTED);
+	}
+
+	private volatile PrintJob.Status statusSeenByPrinter;
+
+	@Test
+	void unclearOutcomeIsNotRetried() throws Exception {
 		var bar = fakePrinter();
 		printer("Bar", bar.address(), ItemType.DRINK);
 		bar.answer(new FakeEposPrinter.Answer(200, FakeEposPrinter.SUCCESS, Duration.ofSeconds(1)));
@@ -121,8 +190,9 @@ class PrintWorkerTest extends PrintingTestSupport {
 
 		assertThat(bar.requests).hasSize(1);
 		PrintJob job = job(id, ItemType.DRINK);
-		assertThat(job.status()).isEqualTo(PrintJob.Status.FAILED);
+		assertThat(job.status()).isEqualTo(PrintJob.Status.UNCLEAR);
 		assertThat(job.lastError()).isEqualTo(EposClient.NO_ANSWER);
+		as(waiter, get("/orders")).andExpect(jsonPath("$[0].printStatus").value("unclear"));
 	}
 
 	@Test
@@ -183,6 +253,16 @@ class PrintWorkerTest extends PrintingTestSupport {
 			clock.set(job.nextAttemptAt().toString());
 		}
 		throw new AssertionError("ticket still pending");
+	}
+
+	/** Runs the worker for {@code duration} of clock time, one second at a time. */
+	private void runFor(Duration duration) {
+		Instant end = clock.instant().plus(duration);
+		while (clock.instant().isBefore(end)) {
+			worker.deliverDue();
+			clock.advance(Duration.ofSeconds(1));
+		}
+		worker.deliverDue();
 	}
 
 }

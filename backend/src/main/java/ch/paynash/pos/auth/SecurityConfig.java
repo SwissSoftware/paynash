@@ -26,7 +26,7 @@ import ch.paynash.pos.common.Problems;
 
 /**
  * Central permission matrix (spec staff-access, "Role-based permissions"). Admins inherit every waiter permission
- * through the role hierarchy.
+ * through the role hierarchy. Stations stand outside it: they only reach {@code /station/**} and their own session.
  */
 @Configuration
 public class SecurityConfig {
@@ -48,6 +48,8 @@ public class SecurityConfig {
 				.requestMatchers(HttpMethod.HEAD, "/health", "/images/*").permitAll()
 				.requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
 				.requestMatchers("/v3/api-docs/**").permitAll()
+				.requestMatchers("/auth/**").authenticated()
+				.requestMatchers("/station/**").hasRole("STATION")
 				.requestMatchers("/admin/**", "/exports/**").hasRole("ADMIN")
 				.anyRequest().hasRole("WAITER"))
 			.exceptionHandling(e -> e

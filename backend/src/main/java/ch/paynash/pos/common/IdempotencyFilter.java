@@ -57,7 +57,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 	protected boolean shouldNotFilter(HttpServletRequest request) {
 		String path = request.getRequestURI().substring(request.getContextPath().length());
 		return !MUTATING.contains(request.getMethod()) || request.getHeader(HEADER) == null
-				|| !(path.startsWith("/orders") || path.startsWith("/admin/orders"));
+				|| !(path.startsWith("/orders") || path.startsWith("/admin/orders") || path.startsWith("/station"));
 	}
 
 	@Override

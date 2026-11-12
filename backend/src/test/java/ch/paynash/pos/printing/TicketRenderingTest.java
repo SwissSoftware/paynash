@@ -41,6 +41,7 @@ class TicketRenderingTest extends PrintingTestSupport {
 
 		assertThat(jobs(id)).hasSize(2);
 		assertThat(job(id, ItemType.DRINK).content()).isEqualTo("""
+				# BAR 0001
 				# Table 12
 				# Order %d
 				# anna Display
@@ -49,6 +50,7 @@ class TicketRenderingTest extends PrintingTestSupport {
 				# 2 x Cola
 				# 1 x Beer""".formatted(id, LINE));
 		assertThat(job(id, ItemType.FOOD).content()).isEqualTo("""
+				# KITCHEN 0001
 				# Table 12
 				# Order %d
 				# anna Display
@@ -82,7 +84,9 @@ class TicketRenderingTest extends PrintingTestSupport {
 		PrintJob storno = jobs(id).getLast();
 		assertThat(storno.kind()).isEqualTo(PrintJob.Kind.STORNO);
 		assertThat(storno.printerName()).isEqualTo("Bar");
+		assertThat(storno.ticketNo()).isEqualTo(2);
 		assertThat(storno.content()).isEqualTo("""
+				# BAR 0002
 				# *** STORNO ***
 				# Table 12
 				# Order %d
@@ -105,6 +109,7 @@ class TicketRenderingTest extends PrintingTestSupport {
 		var voidTickets = jobs(id).stream().filter(j -> j.kind() == PrintJob.Kind.STORNO).skip(1).toList();
 		assertThat(voidTickets).hasSize(2);
 		assertThat(voidTickets.get(0).content()).isEqualTo("""
+				# BAR 0003
 				# *** STORNO ***
 				# Table 12
 				# Order %d voided
@@ -114,7 +119,9 @@ class TicketRenderingTest extends PrintingTestSupport {
 				%s
 				# Reason: guests left""".formatted(id, LINE, LINE));
 		assertThat(voidTickets.get(1).printerName()).isEqualTo("Kitchen");
-		assertThat(voidTickets.get(1).content()).contains("# 1 x Margherita").doesNotContain("Cola");
+		assertThat(voidTickets.get(1).content()).startsWith("# KITCHEN 0002\n")
+			.contains("# 1 x Margherita")
+			.doesNotContain("Cola");
 	}
 
 	@Test
@@ -129,6 +136,8 @@ class TicketRenderingTest extends PrintingTestSupport {
 		assertThat(reprint.kind()).isEqualTo(PrintJob.Kind.REPRINT);
 		assertThat(reprint.reprintOf()).isEqualTo(original.id());
 		assertThat(reprint.content()).isEqualTo("# *** REPRINT ***\n" + original.content());
+		assertThat(original.content()).startsWith("# KITCHEN 0001\n");
+		assertThat(reprint.ticketNo()).isEqualTo(original.ticketNo()).isEqualTo(1);
 	}
 
 	@Test

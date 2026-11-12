@@ -15,13 +15,17 @@ import '../menu/menu_screen.dart';
 import '../orders/order_api.dart';
 import '../orders/order_history_screen.dart';
 import '../orders/order_screen.dart';
+import '../station/station_api.dart';
+import '../station/station_devices.dart';
+import '../station/station_screen.dart';
 
 /// Main layout after login. Admin-only sections are hidden for waiters
 /// (the backend enforces the same rules).
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, required this.session});
+  const HomeShell({super.key, required this.session, required this.stationDevices});
 
   final SessionController session;
+  final StationDevices stationDevices;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -40,7 +44,7 @@ class _HomeShellState extends State<HomeShell> {
   late final _orderApi = OrderApi(widget.session.api);
   late final _tablesApi = TablesApi(widget.session.api);
 
-  List<_Section> _sections(Me me) => [
+  List<_Section> _sections(Me me) => me.isStation ? _stationSections() : [
         _Section('New order', Icons.add_shopping_cart,
             () => OrderScreen(orderApi: _orderApi, menuApi: _menuApi, tablesApi: _tablesApi)),
         _Section('History', Icons.receipt_long,
@@ -61,6 +65,12 @@ class _HomeShellState extends State<HomeShell> {
         if (me.isAdmin)
           _Section('Staff', Icons.badge,
               () => StaffScreen(api: StaffApi(widget.session.api), me: me)),
+      ];
+
+  /// A station sees only the station view (spec staff-access, station permissions).
+  List<_Section> _stationSections() => [
+        _Section('Station', Icons.print,
+            () => StationScreen(api: StationApi(widget.session.api), devices: widget.stationDevices)),
       ];
 
   @override

@@ -52,28 +52,39 @@ missing type.
   delays or undoes saving an order.
 - A worker sends queued tickets every second, one at a time per printer, oldest first, so tickets arrive in order. A
   printer that is down does not hold up the other one.
-- **Retries:** when the printer cannot have printed anything (offline, paper end, cover open), the ticket is retried
-  with pauses of 2, 4, 8, then 16 seconds for at least 60 seconds, then marked **failed** with the reason. Settings:
-  `pos.printing.retry-window` (default `60s`), `pos.printing.connect-timeout` (`3s`), `pos.printing.epos-timeout`
-  (`10s`).
-- **No automatic duplicates:** a ticket confirmed as printed is never sent again by itself. When the outcome is unclear
-  (the printer took the data but did not answer, or reported a cutter or mechanical error), the ticket is marked
-  failed at once with "check the ticket and reprint if needed" instead of being retried.
-- **Failed tickets** are flagged in the order history and in the order. Waiters and admins can **Reprint** any ticket
-  that is not still printing; the reprint carries a `*** REPRINT ***` banner and goes to the printer that serves the
-  ticket's type now.
+- **Waiting instead of failing:** when the printer certainly printed nothing (offline, paper end, cover open), the
+  ticket stays **pending** with that reason and is tried again with pauses of 2, 4, 8, then 16 seconds, **without a
+  time limit**. Later tickets for the same printer wait behind it. Once the printer is ready (paper in, cover closed,
+  back online), all waiting tickets print by themselves in their original order; nobody has to reprint them.
+  Settings: `pos.printing.connect-timeout` (default `3s`), `pos.printing.epos-timeout` (`10s`).
+- **Unclear tickets:** when the printer may have printed the ticket (it took the data but did not answer, the
+  connection broke while sending, or it reported a cutter or mechanical error), the ticket is marked **unclear** with
+  "check the ticket and reprint if needed". It is never sent again by itself. Staff check the pile and reprint it only
+  if it is missing. Unclear tickets do not hold up the tickets behind them.
+- **Restart while printing:** a ticket is marked *printing* before it goes to the printer. If the backend stops before
+  the printer's answer is recorded, the ticket becomes **unclear** ("system restarted while printing") at the next
+  start instead of being printed a second time.
+- **Failed tickets:** a ticket is **failed** only when it certainly did not print and cannot print until the
+  configuration is fixed (no printer configured, wrong device ID, ePOS-Print disabled, invalid print data).
+- **No automatic duplicates:** a ticket confirmed as printed, or unclear, is never sent again by itself. Only an explicit
+  reprint prints it again.
+- Waiting, unclear, and failed tickets are flagged in the order history and in the order. Waiters and admins can
+  **Reprint** any ticket that is not waiting or printing; the reprint carries a `*** REPRINT ***` banner and goes to the
+  printer that serves the ticket's type now.
 
 ## Troubleshooting
 
-| Error shown | Meaning | What to do |
+| Status and message | Meaning | What to do |
 |---|---|---|
-| printer offline | The server cannot reach the printer | Check power, cable/WiFi, and the IP (status sheet), then reprint |
-| paper end | Paper roll is empty | Insert a new roll, then reprint |
-| cover open | Printer cover is open | Close the cover, then reprint |
-| no printer configured | No active printer for this type | Add or activate the printer under Printers, then reprint |
-| device ID not found on the printer | Device ID in the app does not match the printer | Correct the device ID (step 6) |
-| ePOS-Print is not enabled on the printer | The printer answered 404 | Enable ePOS-Print (step 5) |
-| no answer from printer; check the ticket and reprint if needed | Unclear whether it printed | Check at the printer; reprint only if the ticket is missing |
+| pending: printer offline | The server cannot reach the printer; nothing printed | Check power, cable/WiFi, and the IP (status sheet). Waiting tickets print by themselves once it is reachable |
+| pending: paper end | Paper roll is empty; nothing printed | Insert a new roll. Waiting tickets print by themselves |
+| pending: cover open | Printer cover is open; nothing printed | Close the cover. Waiting tickets print by themselves |
+| unclear: no answer from printer; check the ticket and reprint if needed | Unclear whether it printed | Check at the printer; reprint only if the ticket is missing |
+| unclear: cutter error / mechanical error / printer timeout ... | The printer reported an error while it may have been printing | Fix the printer, check the pile, reprint only if the ticket is missing |
+| unclear: system restarted while printing ... | The backend stopped while the ticket was at the printer | Check the pile; reprint only if the ticket is missing |
+| failed: no printer configured | No active printer for this type | Add or activate the printer under Printers, then reprint |
+| failed: device ID not found on the printer | Device ID in the app does not match the printer | Correct the device ID (step 6), then reprint |
+| failed: ePOS-Print is not enabled on the printer | The printer answered 404 | Enable ePOS-Print (step 5), then reprint |
 
 ## Hardware test
 

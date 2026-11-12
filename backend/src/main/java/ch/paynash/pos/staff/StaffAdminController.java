@@ -35,23 +35,26 @@ public class StaffAdminController {
 		this.service = service;
 	}
 
-	public record StaffView(long id, String username, String displayName, Role role, boolean active) {
+	/** {@code printerIds} are the printers a station shows; empty for other roles. */
+	public record StaffView(long id, String username, String displayName, Role role, boolean active,
+			List<Long> printerIds) {
 
-		static StaffView of(Staff s) {
-			return new StaffView(s.id(), s.username(), s.displayName(), s.role(), s.active());
-		}
+	}
 
+	private StaffView view(Staff s) {
+		return new StaffView(s.id(), s.username(), s.displayName(), s.role(), s.active(),
+				service.stationPrinters(s.id()));
 	}
 
 	public record CreateStaffRequest(
 			@NotBlank @Size(max = 40) @Pattern(regexp = "[A-Za-z0-9._-]+",
 					message = "Only letters, digits, '.', '_' and '-'") String username,
 			@NotBlank @Size(max = 80) String displayName, @NotNull Role role,
-			@NotNull @Pattern(regexp = PIN_REGEX, message = PIN_MESSAGE) String pin) {
+			@NotNull @Pattern(regexp = PIN_REGEX, message = PIN_MESSAGE) String pin, List<Long> printerIds) {
 	}
 
 	public record UpdateStaffRequest(@NotBlank @Size(max = 80) String displayName, @NotNull Role role,
-			@NotNull Boolean active) {
+			@NotNull Boolean active, List<Long> printerIds) {
 	}
 
 	public record ResetPinRequest(@NotNull @Pattern(regexp = PIN_REGEX, message = PIN_MESSAGE) String pin) {
@@ -60,20 +63,22 @@ public class StaffAdminController {
 	@GetMapping
 	@Operation(summary = "List all staff accounts")
 	public List<StaffView> list() {
-		return service.list().stream().map(StaffView::of).toList();
+		return service.list().stream().map(this::view).toList();
 	}
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
-	@Operation(summary = "Create a staff account")
+	@Operation(summary = "Create a staff account",
+			description = "Role station needs printerIds: the printers the station shows.")
 	public StaffView create(@Valid @RequestBody CreateStaffRequest r) {
-		return StaffView.of(service.create(r.username(), r.displayName(), r.role(), r.pin()));
+		return view(service.create(r.username(), r.displayName(), r.role(), r.pin(), r.printerIds()));
 	}
 
 	@PutMapping("/{id}")
-	@Operation(summary = "Edit a staff account", description = "Setting active=false ends all its sessions.")
+	@Operation(summary = "Edit a staff account",
+			description = "Setting active=false ends all its sessions. Role station needs printerIds.")
 	public StaffView update(@PathVariable long id, @Valid @RequestBody UpdateStaffRequest r) {
-		return StaffView.of(service.update(id, r.displayName(), r.role(), r.active()));
+		return view(service.update(id, r.displayName(), r.role(), r.active(), r.printerIds()));
 	}
 
 	@PostMapping("/{id}/pin")

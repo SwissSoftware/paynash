@@ -32,7 +32,7 @@ class ReprintTest extends PrintingTestSupport {
 
 	@Test
 	void reprintAfterPaperChangePrintsTheSameTicketMarkedReprint() throws Exception {
-		long id = failedKitchenOrder();
+		long id = unclearKitchenOrder();
 		long original = job(id, ItemType.FOOD).id();
 
 		reprint(id, original).andExpect(status().isCreated())
@@ -44,7 +44,7 @@ class ReprintTest extends PrintingTestSupport {
 		assertThat(kitchen.requests).last().satisfies(r -> assertThat(r).contains("*** REPRINT ***").contains(
 				"1 x Margherita"));
 		as(waiter, get("/orders/" + id)).andExpect(jsonPath("$.tickets.length()").value(2))
-			.andExpect(jsonPath("$.tickets[0].status").value("failed"))
+			.andExpect(jsonPath("$.tickets[0].status").value("unclear"))
 			.andExpect(jsonPath("$.tickets[0].reprinted").value(true))
 			.andExpect(jsonPath("$.tickets[1].status").value("printed"))
 			.andExpect(jsonPath("$.tickets[1].printer").value("Kitchen"));
@@ -65,14 +65,14 @@ class ReprintTest extends PrintingTestSupport {
 
 	@Test
 	void reprintOfAReprintIsMarkedOnce() throws Exception {
-		long id = failedKitchenOrder();
+		long id = unclearKitchenOrder();
 		reprint(id, job(id, ItemType.FOOD).id());
 		worker.deliverDue();
 		long reprinted = jobs(id).getLast().id();
 
 		reprint(id, reprinted).andExpect(status().isCreated());
 
-		assertThat(jobs(id).getLast().content()).startsWith("# *** REPRINT ***\n# Table 12");
+		assertThat(jobs(id).getLast().content()).startsWith("# *** REPRINT ***\n# KITCHEN 0001\n# Table 12");
 	}
 
 	@Test
@@ -97,7 +97,7 @@ class ReprintTest extends PrintingTestSupport {
 
 	@Test
 	void ticketMustBelongToTheOrder() throws Exception {
-		long id = failedKitchenOrder();
+		long id = unclearKitchenOrder();
 		long other = sendOrder(waiter, "13", line(pizza, 1));
 
 		reprint(other, job(id, ItemType.FOOD).id()).andExpect(status().isNotFound());
@@ -105,7 +105,7 @@ class ReprintTest extends PrintingTestSupport {
 
 	@Test
 	void retriedReprintRequestPrintsOnce() throws Exception {
-		long id = failedKitchenOrder();
+		long id = unclearKitchenOrder();
 		long original = job(id, ItemType.FOOD).id();
 
 		for (int i = 0; i < 2; i++) {
@@ -122,11 +122,11 @@ class ReprintTest extends PrintingTestSupport {
 		mvc.perform(post("/orders/1/tickets/1/reprint")).andExpect(status().isUnauthorized());
 	}
 
-	private long failedKitchenOrder() throws Exception {
+	private long unclearKitchenOrder() throws Exception {
 		kitchen.answer(FakeEposPrinter.response(false, "EPTR_CUTTER"));
 		long id = sendOrder(waiter, "12", line(pizza, 1));
 		worker.deliverDue();
-		assertThat(job(id, ItemType.FOOD).status()).isEqualTo(PrintJob.Status.FAILED);
+		assertThat(job(id, ItemType.FOOD).status()).isEqualTo(PrintJob.Status.UNCLEAR);
 		return id;
 	}
 

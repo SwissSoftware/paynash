@@ -87,6 +87,22 @@ class AuthControllerTest extends IntegrationTest {
 	}
 
 	@Test
+	void stationSessionLastsAWholeEventDay() throws Exception {
+		createStaff("station-bar", Role.STATION, "5555");
+		String token = login("station-bar", "5555");
+
+		clock.advance(Duration.ofHours(13));
+		mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(token))).andExpect(status().isOk());
+
+		clock.advance(Duration.ofHours(11).minusMinutes(1));
+		mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(token))).andExpect(status().isOk());
+
+		clock.advance(Duration.ofMinutes(1));
+		mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
 	void meReturnsTheLoggedInStaff() throws Exception {
 		createStaff("anna", Role.WAITER, "4711");
 		String token = login("anna", "4711");

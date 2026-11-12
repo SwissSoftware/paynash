@@ -2,6 +2,7 @@ package ch.paynash.pos.printing;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -64,6 +65,34 @@ public class PrinterRepository {
 		jdbc.sql("UPDATE printer SET name = ?, address = ?, device_id = ?, item_type = ?, active = ? WHERE id = ?")
 			.params(name, address, deviceId, type.dbValue(), active, id)
 			.update();
+	}
+
+	/**
+	 * The printer's next ticket number (design D3). The row stays locked until the caller's transaction ends, so
+	 * concurrent orders get consecutive numbers in the order their tickets are queued.
+	 */
+	public int nextTicketNo(long id) {
+		return jdbc.sql("UPDATE printer SET last_ticket_no = last_ticket_no + 1 WHERE id = ? RETURNING last_ticket_no")
+			.param(id)
+			.query(Integer.class)
+			.single();
+	}
+
+	/** A station that shows a printer, and when it last polled. */
+	public record StationSeen(long id, String name, Instant lastSeenAt) {
+	}
+
+	public List<StationSeen> stationsShowing(long printerId) {
+		return jdbc.sql("""
+				SELECT s.id, s.display_name, s.last_seen_at FROM station_printer sp JOIN staff s ON s.id = sp.station_id
+				WHERE sp.printer_id = ? AND s.active ORDER BY lower(s.display_name)""")
+			.param(printerId)
+			.query((rs, row) -> {
+				var seen = rs.getTimestamp("last_seen_at");
+				return new StationSeen(rs.getLong("id"), rs.getString("display_name"),
+						seen == null ? null : seen.toInstant());
+			})
+			.list();
 	}
 
 	private Printer map(ResultSet rs, int row) throws SQLException {

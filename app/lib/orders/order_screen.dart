@@ -14,6 +14,11 @@ import 'text_dialog.dart';
 
 final _tableLabel = RegExp(r'^[A-Za-z0-9]{1,10}$');
 
+/// Shown when sending failed for lack of a connection.
+const sendMaybeFailedMessage =
+    'Connection lost: the order may or may not have arrived. Sending again is safe and cannot '
+    'create a second order.';
+
 /// Taking an order: pick or type the table, tap menu tiles to build the order on
 /// this device, adjust quantities and notes, and send it in one go. After a
 /// successful send the screen is empty again; the order is in the history.
@@ -175,9 +180,10 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
         if (e.fieldErrors['tableLabel'] != null) {
           _tableError = e.fieldErrors['tableLabel'];
         } else {
-          _sendError = e.isConnectionError
-              ? 'Not sent: no connection. Please try again.'
-              : e.message;
+          // The answer may have been lost after the order arrived. The kept
+          // idempotency key makes sending again safe (spec order-taking,
+          // "Clear message when sending may have failed").
+          _sendError = e.isConnectionError ? sendMaybeFailedMessage : e.message;
         }
       });
     } finally {

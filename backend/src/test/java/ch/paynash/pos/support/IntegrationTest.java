@@ -97,6 +97,13 @@ public abstract class IntegrationTest {
 		return JsonPath.read(body, "$.token");
 	}
 
+	/** Creates a station account that shows the given printers. */
+	protected long createStation(String username, String pin, Long... printerIds) {
+		long id = createStaff(username, Role.STATION, pin);
+		staffRepository.setStationPrinters(id, java.util.List.of(printerIds));
+		return id;
+	}
+
 	/** Creates an admin "boss" and returns a bearer token for it. */
 	protected String adminToken() throws Exception {
 		createStaff("boss", Role.ADMIN, "1111");
