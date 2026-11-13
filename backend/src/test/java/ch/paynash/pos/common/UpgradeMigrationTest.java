@@ -90,6 +90,42 @@ class UpgradeMigrationTest {
 		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
 	}
 
+	@Test
+	void salonMigrationsKeepExistingEventData() {
+		jdbc.sql("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE").update();
+		flyway("9").migrate();
+		in(SCHEMA, """
+				INSERT INTO staff (id, username, display_name, role, pin_hash) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'anna', 'Anna', 'waiter', 'h');
+				INSERT INTO category (id, name) OVERRIDING SYSTEM VALUE VALUES (1, 'Drinks');
+				INSERT INTO menu_item (id, category_id, name, type, price_rappen) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 1, 'Cola', 'drink', 450);
+				INSERT INTO orders (id, table_label, sent_by, sent_at) OVERRIDING SYSTEM VALUE
+				    VALUES (1, '12', 1, now());
+				INSERT INTO order_line (order_id, menu_item_id, name_snapshot, type_snapshot, category_snapshot,
+				    unit_price_snapshot, qty) VALUES (1, 1, 'Cola', 'drink', 'Drinks', 450, 2);
+				INSERT INTO printer (id, name, address, item_type) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'Bar', '10.0.0.5', 'drink');
+				INSERT INTO print_job (order_id, item_type, printer_id, kind, content, status, ticket_no, created_at)
+				    VALUES (1, 'drink', 1, 'normal', 'x', 'printed', 1, now());
+				""");
+
+		var result = flyway(null).migrate();
+
+		assertThat(result.success).isTrue();
+		assertThat(one("SELECT mode FROM installation_settings")).isEqualTo("event");
+		assertThat(one("SELECT vat_rate_permille::text FROM menu_item")).isEqualTo("81");
+		assertThat(one("SELECT vat_rate_snapshot::text FROM order_line")).isEqualTo("81");
+		assertThat(one("SELECT table_label FROM orders")).isEqualTo("12");
+		assertThat(one("SELECT purpose FROM printer")).isEqualTo("drink");
+		assertThat(one("SELECT status FROM print_job")).isEqualTo("printed");
+		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
+	}
+
+	private String one(String sql) {
+		return jdbc.sql(sql.replace(" FROM ", " FROM " + SCHEMA + ".")).query(String.class).single();
+	}
+
 	private Flyway flyway(String target) {
 		var config = Flyway.configure().dataSource(dataSource).schemas(SCHEMA).defaultSchema(SCHEMA);
 		if (target != null) {

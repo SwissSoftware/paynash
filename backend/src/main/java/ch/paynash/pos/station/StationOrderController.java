@@ -12,6 +12,8 @@ import ch.paynash.pos.auth.AuthService;
 import ch.paynash.pos.auth.AuthenticatedStaff;
 import ch.paynash.pos.order.OrderController.OrderView;
 import ch.paynash.pos.order.OrderService;
+import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.RequiresMode;
 import ch.paynash.pos.staff.Staff;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,6 +29,7 @@ import jakarta.validation.constraints.Size;
  * wrong PIN counts toward the lockout even though nothing is cancelled.
  */
 @RestController
+@RequiresMode(Mode.EVENT)
 @RequestMapping("/station/orders")
 @Tag(name = "Station")
 public class StationOrderController {

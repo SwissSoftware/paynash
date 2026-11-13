@@ -28,7 +28,7 @@ abstract class OrderTestSupport extends IntegrationTest {
 	}
 
 	protected long item(long categoryId, String name, ItemType type, int priceRappen) {
-		return menu.insertItem(categoryId, name, type, priceRappen, null, true);
+		return menu.insertItem(categoryId, name, type, priceRappen, null, true, null, 81);
 	}
 
 	protected ResultActions as(String token, MockHttpServletRequestBuilder request) throws Exception {

@@ -32,7 +32,7 @@ class IdempotencyTest extends IntegrationTest {
 	@BeforeEach
 	void setUp() throws Exception {
 		anna = waiterToken();
-		cola = menu.insertItem(menu.insertCategory("Drinks"), "Cola", ItemType.DRINK, 450, null, true);
+		cola = menu.insertItem(menu.insertCategory("Drinks"), "Cola", ItemType.DRINK, 450, null, true, null, 81);
 	}
 
 	@Test

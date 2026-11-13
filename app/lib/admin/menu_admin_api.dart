@@ -23,6 +23,8 @@ class AdminItem {
     required this.active,
     this.description,
     this.imageUrl,
+    this.durationMin,
+    this.vatRate = '8.1',
   });
 
   factory AdminItem.fromJson(Map<String, dynamic> json) => AdminItem(
@@ -34,6 +36,8 @@ class AdminItem {
         active: json['active'] as bool,
         description: json['description'] as String?,
         imageUrl: json['imageUrl'] as String?,
+        durationMin: json['durationMin'] as int?,
+        vatRate: json['vatRate'] as String? ?? '8.1',
       );
 
   final int id;
@@ -44,7 +48,16 @@ class AdminItem {
   final bool active;
   final String? description;
   final String? imageUrl;
+
+  /// Services only, in minutes.
+  final int? durationMin;
+
+  /// Percentage such as "8.1"; only shown while VAT is turned on.
+  final String vatRate;
 }
+
+/// The VAT rates an item can have (spec menu-catalog, "VAT rate per item").
+const vatRates = ['8.1', '2.6', '3.8', '0.0'];
 
 class ItemInput {
   ItemInput({
@@ -54,6 +67,8 @@ class ItemInput {
     required this.price,
     required this.description,
     required this.active,
+    this.durationMin,
+    this.vatRate,
   });
 
   final int categoryId;
@@ -62,6 +77,10 @@ class ItemInput {
   final String price;
   final String description;
   final bool active;
+  final int? durationMin;
+
+  /// Null keeps the current rate (8.1 % for a new item).
+  final String? vatRate;
 
   Map<String, dynamic> toJson() => {
         'categoryId': categoryId,
@@ -70,6 +89,8 @@ class ItemInput {
         'price': price,
         'description': description,
         'active': active,
+        'durationMin': ?durationMin,
+        'vatRate': ?vatRate,
       };
 }
 

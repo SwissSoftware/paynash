@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import com.jayway.jsonpath.JsonPath;
 
 import ch.paynash.pos.menu.ItemType;
+import ch.paynash.pos.settings.Mode;
 import ch.paynash.pos.support.FakeEposPrinter;
 
 /** Spec ticket-printing, "Printer configuration". */
@@ -55,7 +56,7 @@ class PrinterAdminTest extends PrintingTestSupport {
 		update(spare, "Bar 2", "192.168.1.51", "drink", true).andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.errors.type").exists());
 		update(spare, "Bar 2", "192.168.1.51", "food", true).andExpect(status().isOk());
-		assertThatThrownBy(() -> printerRepository.insert("Bar 3", "x", "local_printer", ItemType.DRINK, true))
+		assertThatThrownBy(() -> printerRepository.insert("Bar 3", "x", "local_printer", PrintPurpose.DRINK, true))
 			.isInstanceOf(DuplicateKeyException.class);
 	}
 
@@ -67,7 +68,7 @@ class PrinterAdminTest extends PrintingTestSupport {
 		update(bar, "Bar", "192.168.1.50", "drink", false).andExpect(status().isOk());
 		update(spare, "Spare", "192.168.1.51", "drink", true).andExpect(status().isOk());
 
-		assertThat(printerRepository.findActiveFor(ItemType.DRINK)).hasValueSatisfying(
+		assertThat(printerRepository.findActiveFor(PrintPurpose.DRINK)).hasValueSatisfying(
 				p -> assertThat(p.name()).isEqualTo("Spare"));
 	}
 
@@ -78,7 +79,7 @@ class PrinterAdminTest extends PrintingTestSupport {
 		postJson(admin, "/admin/printers", json("name", "", "address", "a b")).andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.errors.name").exists())
 			.andExpect(jsonPath("$.errors.address").value("Enter an IP address or host name, optionally with port"))
-			.andExpect(jsonPath("$.errors.type").value("Type is required (food or drink)"));
+			.andExpect(jsonPath("$.errors.type").value("Type is required (food, drink, or receipt)"));
 		create("Bar", "bar.local:8008", "drink", true).andExpect(status().isCreated());
 		create("BAR", "192.168.1.9", "food", true).andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.errors.name").value("A printer with this name already exists"));
@@ -118,6 +119,25 @@ class PrinterAdminTest extends PrintingTestSupport {
 		postJson(waiter, "/admin/printers", json("name", "Bar", "address", "1.2.3.4", "type", "drink"))
 			.andExpect(status().isForbidden());
 		assertThat(printerRepository.findAll()).isEmpty();
+	}
+
+	@Test
+	void salonConfiguresOneActiveReceiptPrinter() throws Exception {
+		settingsService.changeMode(Mode.SALON);
+		create("Counter", "192.168.1.60", "receipt", true).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.type").value("receipt"));
+		create("Spare", "192.168.1.61", "receipt", true).andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.type").value("\"Counter\" already prints receipts. Deactivate it first."));
+		create("Spare", "192.168.1.61", "receipt", false).andExpect(status().isCreated());
+	}
+
+	@Test
+	void salonRejectsTicketPrintersAndEventRejectsReceiptPrinters() throws Exception {
+		create("Counter", "192.168.1.60", "receipt", true).andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.type").value("Receipt printers are only available in salon mode"));
+		settingsService.changeMode(Mode.SALON);
+		create("Bar", "192.168.1.50", "drink", true).andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.type").value("In salon mode a printer prints receipts"));
 	}
 
 	private ResultActions create(String name, String address, String type, boolean active) throws Exception {

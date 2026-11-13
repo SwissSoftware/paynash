@@ -72,6 +72,23 @@ missing type.
   **Reprint** any ticket that is not waiting or printing; the reprint carries a `*** REPRINT ***` banner and goes to the
   printer that serves the ticket's type now.
 
+## Receipts in salon mode
+
+In salon mode (change `add-salon-mode`) there are no kitchen or bar tickets: services are never printed. Instead, a
+**receipt printer** (also an Epson TM-m30III, set up as in *Printer setup*) prints the invoice for the customer.
+
+- Under **Printers**, add the printer with the type **Receipt**. A salon accepts only receipt printers, an event only
+  food and drink printers. At most one receipt printer is active.
+- **Issuing an invoice** queues its receipt in the same transaction. It goes through the same queue as tickets, so all
+  rules above apply: it **waits** while the printer is offline, out of paper, or open, becomes **unclear** if the printer
+  may have printed it, and is never printed twice by itself. The receipt carries the printer's running number on top
+  (e.g. `COUNTER 0012`), the invoice in German, and the VAT breakdown if the invoice has VAT.
+- The invoice view shows the latest receipt's status and error. **Print copy** prints the receipt again marked
+  `*** KOPIE ***` (and `*** STORNIERT ***` for a cancelled invoice). A copy also resolves an unclear receipt. It is
+  refused while a receipt of the invoice is still waiting or printing.
+- Without an active receipt printer, the invoice is still issued and its receipt is **failed: no printer configured**.
+  After adding the printer, print a copy.
+
 ## Troubleshooting
 
 | Status and message | Meaning | What to do |
@@ -82,7 +99,7 @@ missing type.
 | unclear: no answer from printer; check the ticket and reprint if needed | Unclear whether it printed | Check at the printer; reprint only if the ticket is missing |
 | unclear: cutter error / mechanical error / printer timeout ... | The printer reported an error while it may have been printing | Fix the printer, check the pile, reprint only if the ticket is missing |
 | unclear: system restarted while printing ... | The backend stopped while the ticket was at the printer | Check the pile; reprint only if the ticket is missing |
-| failed: no printer configured | No active printer for this type | Add or activate the printer under Printers, then reprint |
+| failed: no printer configured | No active printer for this type (or no receipt printer in a salon) | Add or activate the printer under Printers, then reprint (receipts: print a copy) |
 | failed: device ID not found on the printer | Device ID in the app does not match the printer | Correct the device ID (step 6), then reprint |
 | failed: ePOS-Print is not enabled on the printer | The printer answered 404 | Enable ePOS-Print (step 5), then reprint |
 

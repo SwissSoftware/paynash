@@ -31,6 +31,14 @@ class OpenApiTest extends IntegrationTest {
 		assertThat(api.getPaths()).containsKeys("/admin/printers", "/admin/printers/{id}", "/admin/printers/{id}/test",
 				"/orders/{orderId}/tickets/{ticketId}/reprint");
 		assertThat(api.getPaths()).containsKey("/exports/orders.csv");
+		assertThat(api.getPaths()).containsKeys("/settings", "/admin/settings", "/admin/settings/mode");
+		assertThat(api.getPaths()).containsKeys("/customers", "/customers/{id}", "/customers/duplicates",
+				"/admin/customers/{id}", "/admin/customers/{id}/deactivate", "/admin/customers/{id}/reactivate",
+				"/admin/customers/{id}/export");
+		assertThat(api.getPaths()).containsKeys("/orders/{orderId}/invoice", "/invoices", "/invoices/{id}",
+				"/invoices/{id}/payment", "/invoices/{id}/receipt", "/invoices/{id}/pdf", "/admin/invoices/{id}/cancel",
+				"/admin/invoices/{id}/payment/undo");
+		assertThat(api.getPaths()).containsKeys("/admin/reports/sales", "/admin/reports/sales.xlsx");
 		assertThat(api.getPaths()).containsKeys("/station/printers", "/station/tickets", "/station/tickets/{id}/resolve",
 				"/station/tickets/{id}/reprint", "/station/orders/{id}", "/station/orders/{id}/lines/{lineId}/cancel",
 				"/station/orders/{id}/void");

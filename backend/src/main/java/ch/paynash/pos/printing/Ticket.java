@@ -52,29 +52,29 @@ public record Ticket(List<Row> rows) {
 		return printerName.toUpperCase() + " " + String.format("%04d", ticketNo);
 	}
 
-	static Builder builder() {
+	public static Builder builder() {
 		return new Builder();
 	}
 
-	static final class Builder {
+	public static final class Builder {
 
 		private final List<Row> rows = new ArrayList<>();
 
-		Builder large(String text) {
+		public Builder large(String text) {
 			rows.add(new Row(true, text));
 			return this;
 		}
 
-		Builder normal(String text) {
+		public Builder normal(String text) {
 			rows.add(new Row(false, text));
 			return this;
 		}
 
-		Builder separator() {
+		public Builder separator() {
 			return normal("-".repeat(TicketRenderer.WIDTH));
 		}
 
-		Ticket build() {
+		public Ticket build() {
 			return new Ticket(List.copyOf(rows));
 		}
 

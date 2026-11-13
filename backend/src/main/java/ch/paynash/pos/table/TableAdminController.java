@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.RequiresMode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -20,6 +22,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 @RestController
+@RequiresMode(Mode.EVENT)
 @RequestMapping("/admin/tables")
 @Tag(name = "Admin: tables")
 public class TableAdminController {

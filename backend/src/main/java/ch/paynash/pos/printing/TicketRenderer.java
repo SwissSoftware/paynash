@@ -66,7 +66,8 @@ public class TicketRenderer {
 			.large(printer.name())
 			.large(format(clock.instant()))
 			.separator()
-			.normal("Prints " + printer.itemType().dbValue() + " tickets")
+			.normal(printer.purpose() == PrintPurpose.RECEIPT ? "Prints receipts"
+					: "Prints " + printer.purpose().dbValue() + " tickets")
 			.normal("Umlauts: ä ö ü Ä Ö Ü é è à ç")
 			.build();
 	}

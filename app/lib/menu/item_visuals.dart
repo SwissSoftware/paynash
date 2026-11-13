@@ -2,21 +2,24 @@ import 'package:flutter/material.dart';
 
 import 'menu_models.dart';
 
-/// Colours and icons that tell food and drinks apart at a glance.
+/// Colours and icons that tell food, drinks, and services apart at a glance.
 extension ItemTypeVisuals on ItemType {
   IconData get icon => switch (this) {
         ItemType.food => Icons.restaurant,
         ItemType.drink => Icons.local_bar,
+        ItemType.service => Icons.spa,
       };
 
   Color get color => switch (this) {
         ItemType.food => const Color(0xFFE65100),
         ItemType.drink => const Color(0xFF1565C0),
+        ItemType.service => const Color(0xFF6A1B9A),
       };
 
   String get label => switch (this) {
         ItemType.food => 'Food',
         ItemType.drink => 'Drink',
+        ItemType.service => 'Service',
       };
 }
 

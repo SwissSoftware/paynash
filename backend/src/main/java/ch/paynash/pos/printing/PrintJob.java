@@ -5,22 +5,23 @@ import java.time.Instant;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
-import ch.paynash.pos.menu.ItemType;
-
 /**
  * One ticket in the outbox (design D3, and D1 of harden-printing-for-events). {@code printerId} and {@code ticketNo}
  * are null when no printer was configured. {@code waitingReason} says why a pending ticket waits; {@code lastError} is
  * the error of an unclear or failed ticket. {@code resolution} is set once station staff resolved an unclear ticket,
- * or when it was reprinted.
+ * or when it was reprinted. A job prints either a ticket of {@code orderId} or the receipt of {@code invoiceId}
+ * (add-salon-mode design D8); the other one is null.
  */
-public record PrintJob(long id, long orderId, ItemType itemType, Long printerId, String printerName, Kind kind,
-		String content, Status status, int attempts, String waitingReason, String lastError, Instant firstAttemptAt,
-		Instant nextAttemptAt, Long reprintOf, boolean reprinted, Integer ticketNo, int lineCount,
-		Resolution resolution, Instant resolvedAt, Instant createdAt) {
+public record PrintJob(long id, Long orderId, Long invoiceId, PrintPurpose purpose, Long printerId, String printerName,
+		Kind kind, String content, Status status, int attempts, String waitingReason, String lastError,
+		Instant firstAttemptAt, Instant nextAttemptAt, Long reprintOf, boolean reprinted, Integer ticketNo,
+		int lineCount, Resolution resolution, Instant resolvedAt, Instant createdAt) {
 
 	public enum Kind {
 
-		NORMAL, STORNO, REPRINT;
+		NORMAL, STORNO, REPRINT,
+		/** A receipt printed again, marked "KOPIE". */
+		COPY;
 
 		public String dbValue() {
 			return name().toLowerCase();

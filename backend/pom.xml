@@ -63,6 +63,18 @@
 			<version>0.11.0</version>
 		</dependency>
 		<dependency>
+			<!-- A4 invoice PDFs (add-salon-mode design D9) -->
+			<groupId>com.github.librepdf</groupId>
+			<artifactId>openpdf</artifactId>
+			<version>3.0.5</version>
+		</dependency>
+		<dependency>
+			<!-- Excel export of the sales report (add-salon-mode design D10) -->
+			<groupId>org.apache.poi</groupId>
+			<artifactId>poi-ooxml</artifactId>
+			<version>5.5.1</version>
+		</dependency>
+		<dependency>
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
 			<version>3.2.0</version>

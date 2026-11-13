@@ -44,8 +44,8 @@ class OrderExportTest extends IntegrationTest {
 	void setUp() throws Exception {
 		admin = adminToken();
 		waiter = waiterToken();
-		cola = menu.insertItem(menu.insertCategory("Drinks"), "Cola", ItemType.DRINK, 450, null, true);
-		roesti = menu.insertItem(menu.insertCategory("Mains"), "Rösti", ItemType.FOOD, 1850, null, true);
+		cola = menu.insertItem(menu.insertCategory("Drinks"), "Cola", ItemType.DRINK, 450, null, true, null, 81);
+		roesti = menu.insertItem(menu.insertCategory("Mains"), "Rösti", ItemType.FOOD, 1850, null, true, null, 81);
 	}
 
 	@Test

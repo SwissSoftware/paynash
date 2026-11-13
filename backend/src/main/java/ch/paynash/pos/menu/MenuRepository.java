@@ -11,7 +11,9 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class MenuRepository {
 
-	private static final String ITEM_COLUMNS = "id, category_id, name, type, price_rappen, description, display_order, active, image_ref";
+	private static final String ITEM_COLUMNS = """
+			id, category_id, name, type, price_rappen, description, display_order, active, image_ref, duration_min,
+			vat_rate_permille""";
 
 	private final JdbcClient jdbc;
 
@@ -83,24 +85,27 @@ public class MenuRepository {
 	}
 
 	public long insertItem(long categoryId, String name, ItemType type, int priceRappen, String description,
-			boolean active) {
+			boolean active, Integer durationMin, int vatRatePermille) {
 		return jdbc.sql("""
-				INSERT INTO menu_item (category_id, name, type, price_rappen, description, active, display_order)
-				VALUES (?, ?, ?, ?, ?, ?,
+				INSERT INTO menu_item (category_id, name, type, price_rappen, description, active, duration_min,
+				                       vat_rate_permille, display_order)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?,
 				        (SELECT coalesce(max(display_order), -1) + 1 FROM menu_item WHERE category_id = ?))
 				RETURNING id""")
-			.params(categoryId, name, type.dbValue(), priceRappen, description, active, categoryId)
+			.params(categoryId, name, type.dbValue(), priceRappen, description, active, durationMin, vatRatePermille,
+					categoryId)
 			.query(Long.class)
 			.single();
 	}
 
 	public void updateItem(long id, long categoryId, String name, ItemType type, int priceRappen, String description,
-			boolean active) {
+			boolean active, Integer durationMin, int vatRatePermille) {
 		jdbc.sql("""
 				UPDATE menu_item SET category_id = ?, name = ?, type = ?, price_rappen = ?, description = ?,
-				                     active = ?, updated_at = now()
+				                     active = ?, duration_min = ?, vat_rate_permille = ?, updated_at = now()
 				WHERE id = ?""")
-			.params(categoryId, name, type.dbValue(), priceRappen, description, active, id)
+			.params(categoryId, name, type.dbValue(), priceRappen, description, active, durationMin, vatRatePermille,
+					id)
 			.update();
 	}
 
@@ -135,7 +140,8 @@ public class MenuRepository {
 	private MenuItem mapItem(ResultSet rs, int row) throws SQLException {
 		return new MenuItem(rs.getLong("id"), rs.getLong("category_id"), rs.getString("name"),
 				ItemType.fromDb(rs.getString("type")), rs.getInt("price_rappen"), rs.getString("description"),
-				rs.getInt("display_order"), rs.getBoolean("active"), rs.getString("image_ref"));
+				rs.getInt("display_order"), rs.getBoolean("active"), rs.getString("image_ref"),
+				rs.getObject("duration_min", Integer.class), rs.getInt("vat_rate_permille"));
 	}
 
 }

@@ -19,6 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import ch.paynash.pos.common.ApiException;
+import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.SettingsService;
 import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.staff.Staff;
 import ch.paynash.pos.staff.StaffRepository;
@@ -46,13 +48,17 @@ public class AuthService {
 
 	private final Clock clock;
 
+	private final SettingsService settings;
+
 	private final SecureRandom random = new SecureRandom();
 
-	public AuthService(StaffRepository staff, SessionRepository sessions, PinService pins, Clock clock) {
+	public AuthService(StaffRepository staff, SessionRepository sessions, PinService pins, Clock clock,
+			SettingsService settings) {
 		this.staff = staff;
 		this.sessions = sessions;
 		this.pins = pins;
 		this.clock = clock;
+		this.settings = settings;
 	}
 
 	public record LoginResult(String token, Instant expiresAt, Staff staff) {
@@ -67,6 +73,10 @@ public class AuthService {
 	public LoginResult login(String username, String pin) {
 		Instant now = clock.instant();
 		Staff account = verify(username, pin, now, AuthService::invalidCredentials);
+		if (account.role() == Role.STATION && settings.mode() == Mode.SALON) {
+			// Salon mode has no station view (spec staff-access, "Station in a salon").
+			throw new ApiException(HttpStatus.FORBIDDEN, "Station accounts cannot log in in salon mode");
+		}
 		sessions.deleteExpired(now);
 		String token = newToken();
 		Instant expiresAt = now.plus(account.role() == Role.STATION ? STATION_SESSION_LIFETIME : SESSION_LIFETIME);

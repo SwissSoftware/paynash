@@ -10,14 +10,12 @@ import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import ch.paynash.pos.menu.ItemType;
-
 @Repository
 public class PrintJobRepository {
 
 	private static final String SELECT = """
-			SELECT j.id, j.order_id, j.item_type, j.printer_id, p.name AS printer_name, j.kind, j.content, j.status,
-			       j.attempts, j.waiting_reason, j.last_error, j.first_attempt_at, j.next_attempt_at, j.reprint_of,
+			SELECT j.id, j.order_id, j.invoice_id, j.item_type, j.printer_id, p.name AS printer_name, j.kind, j.content,
+			       j.status, j.attempts, j.waiting_reason, j.last_error, j.first_attempt_at, j.next_attempt_at, j.reprint_of,
 			       j.ticket_no, j.line_count, j.resolution, j.resolved_at, j.created_at,
 			       EXISTS (SELECT 1 FROM print_job r WHERE r.reprint_of = j.id) AS reprinted
 			FROM print_job j LEFT JOIN printer p ON p.id = j.printer_id""";
@@ -28,26 +26,28 @@ public class PrintJobRepository {
 		this.jdbc = jdbc;
 	}
 
-	public long insertPending(long orderId, ItemType type, long printerId, PrintJob.Kind kind, String content,
-			Long reprintOf, int ticketNo, int lineCount, Instant now) {
+	/** Exactly one of {@code orderId} and {@code invoiceId} is set. */
+	public long insertPending(Long orderId, Long invoiceId, PrintPurpose type, long printerId, PrintJob.Kind kind,
+			String content, Long reprintOf, int ticketNo, int lineCount, Instant now) {
 		return jdbc.sql("""
-				INSERT INTO print_job (order_id, item_type, printer_id, kind, content, reprint_of, ticket_no, line_count,
-				                       created_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""")
-			.params(orderId, type.dbValue(), printerId, kind.dbValue(), content, reprintOf, ticketNo, lineCount,
-					Timestamp.from(now))
+				INSERT INTO print_job (order_id, invoice_id, item_type, printer_id, kind, content, reprint_of, ticket_no,
+				                       line_count, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""")
+			.params(orderId, invoiceId, type.dbValue(), printerId, kind.dbValue(), content, reprintOf, ticketNo,
+					lineCount, Timestamp.from(now))
 			.query(Long.class)
 			.single();
 	}
 
 	/** A ticket that cannot be delivered at all, e.g. because no printer serves its type. */
-	public long insertFailed(long orderId, ItemType type, PrintJob.Kind kind, String content, Long reprintOf,
-			int lineCount, String error, Instant now) {
+	public long insertFailed(Long orderId, Long invoiceId, PrintPurpose type, PrintJob.Kind kind, String content,
+			Long reprintOf, int lineCount, String error, Instant now) {
 		return jdbc.sql("""
-				INSERT INTO print_job (order_id, item_type, kind, content, reprint_of, line_count, status, last_error,
-				                       created_at)
-				VALUES (?, ?, ?, ?, ?, ?, 'failed', ?, ?) RETURNING id""")
-			.params(orderId, type.dbValue(), kind.dbValue(), content, reprintOf, lineCount, error, Timestamp.from(now))
+				INSERT INTO print_job (order_id, invoice_id, item_type, kind, content, reprint_of, line_count, status,
+				                       last_error, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 'failed', ?, ?) RETURNING id""")
+			.params(orderId, invoiceId, type.dbValue(), kind.dbValue(), content, reprintOf, lineCount, error,
+					Timestamp.from(now))
 			.query(Long.class)
 			.single();
 	}
@@ -59,6 +59,10 @@ public class PrintJobRepository {
 	/** Locks the job row until the transaction ends, so two resolutions of one ticket are serialised. */
 	public Optional<PrintJob> findForUpdate(long id) {
 		return jdbc.sql(SELECT + " WHERE j.id = ? FOR UPDATE OF j").param(id).query(this::map).optional();
+	}
+
+	public List<PrintJob> findByInvoice(long invoiceId) {
+		return jdbc.sql(SELECT + " WHERE j.invoice_id = ? ORDER BY j.id").param(invoiceId).query(this::map).list();
 	}
 
 	public List<PrintJob> findByOrder(long orderId) {
@@ -168,7 +172,8 @@ public class PrintJobRepository {
 		Long original = rs.wasNull() ? null : reprintOf;
 		int ticketNo = rs.getInt("ticket_no");
 		Integer number = rs.wasNull() ? null : ticketNo;
-		return new PrintJob(rs.getLong("id"), rs.getLong("order_id"), ItemType.fromDb(rs.getString("item_type")),
+		return new PrintJob(rs.getLong("id"), rs.getObject("order_id", Long.class),
+				rs.getObject("invoice_id", Long.class), PrintPurpose.fromDb(rs.getString("item_type")),
 				printer, rs.getString("printer_name"), PrintJob.Kind.fromDb(rs.getString("kind")),
 				rs.getString("content"), PrintJob.Status.fromDb(rs.getString("status")), rs.getInt("attempts"),
 				rs.getString("waiting_reason"), rs.getString("last_error"), instant(rs, "first_attempt_at"),

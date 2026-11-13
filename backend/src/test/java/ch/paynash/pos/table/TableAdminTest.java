@@ -177,7 +177,7 @@ class TableAdminTest extends IntegrationTest {
 	/** An order sent now for {@code label}, without lines; enough for the history to show its table. */
 	private void sentOrder(String label) {
 		long staffId = jdbc.sql("SELECT id FROM staff WHERE username = 'boss'").query(Long.class).single();
-		orders.insertSent(label, staffId, clock.instant());
+		orders.insertSent(label, null, staffId, clock.instant());
 	}
 
 	private long count() {

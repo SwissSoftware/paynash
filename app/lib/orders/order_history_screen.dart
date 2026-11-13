@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../export/export_api.dart';
 import '../export/export_dialog.dart';
+import '../invoices/invoice_api.dart';
 import 'order_api.dart';
 import 'order_detail_screen.dart';
 import 'order_models.dart';
@@ -16,9 +17,13 @@ class OrderHistoryScreen extends StatefulWidget {
     required this.orderApi,
     required this.isAdmin,
     this.exportApi,
+    this.invoiceApi,
   });
 
   final OrderApi orderApi;
+
+  /// Salon mode: issue and open invoices from the order detail.
+  final InvoiceApi? invoiceApi;
 
   /// Set for admins: offers the CSV export.
   final ExportApi? exportApi;
@@ -102,7 +107,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with Polling {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) =>
-            OrderDetailScreen(orderId: orderId, orderApi: widget.orderApi, isAdmin: widget.isAdmin),
+            OrderDetailScreen(
+              orderId: orderId,
+              orderApi: widget.orderApi,
+              isAdmin: widget.isAdmin,
+              invoiceApi: widget.invoiceApi,
+            ),
       ),
     );
     await poll();
@@ -197,26 +207,33 @@ class _OrderTile extends StatelessWidget {
     };
     final alarming =
         order.printStatus == TicketStatus.failed || order.printStatus == TicketStatus.unclear;
+    final subtitle = [
+      '${formatTime(order.sentAt)} · ${order.waiter}${voided ? ' · Voided' : ''}',
+      // Salon orders show their invoice instead of tickets (spec order-taking).
+      if (order.customerName != null && !voided) order.invoice?.label ?? 'not invoiced',
+      ?problem,
+    ];
     return ListTile(
       key: Key('history-order-${order.id}'),
       onTap: onTap,
-      leading: CircleAvatar(child: Text(order.tableLabel, style: text.labelLarge, maxLines: 1)),
+      leading: CircleAvatar(
+        child: order.tableLabel != null
+            ? Text(order.tableLabel!, style: text.labelLarge, maxLines: 1)
+            : const Icon(Icons.person),
+      ),
       title: Row(
         children: [
-          Flexible(child: Text('Table ${order.tableLabel}')),
+          Flexible(child: Text(order.title)),
           const SizedBox(width: 8),
           ?_printIcon(order.printStatus, error),
         ],
       ),
       subtitle: Text(
-        [
-          '${formatTime(order.sentAt)} · ${order.waiter}${voided ? ' · Voided' : ''}',
-          ?problem,
-        ].join('\n'),
+        subtitle.join('\n'),
         key: Key('history-subtitle-${order.id}'),
         style: alarming ? TextStyle(color: error) : null,
       ),
-      isThreeLine: problem != null,
+      isThreeLine: subtitle.length > 1,
       trailing: Text(
         'CHF ${order.total}',
         style: text.titleMedium?.copyWith(decoration: voided ? TextDecoration.lineThrough : null),

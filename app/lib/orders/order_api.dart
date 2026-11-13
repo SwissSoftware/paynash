@@ -41,6 +41,15 @@ class OrderApi {
         }, idempotencyKey),
       );
 
+  /// Salon mode: confirms the order for a customer instead of a table.
+  Future<OrderData> confirm(int customerId, List<DraftLine> lines, String idempotencyKey) async =>
+      _remember(
+        await api.post('/orders', {
+          'customerId': customerId,
+          'lines': [for (final l in lines) l.toJson()],
+        }, idempotencyKey),
+      );
+
   Future<OrderData> cancelLine(int orderId, int lineId, String reason) async => _remember(
     await api.post('/admin/orders/$orderId/lines/$lineId/cancel', {
       'reason': reason,

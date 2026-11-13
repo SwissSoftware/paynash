@@ -20,6 +20,7 @@ import com.jayway.jsonpath.JsonPath;
 import ch.paynash.pos.TestcontainersConfiguration;
 import ch.paynash.pos.auth.PinService;
 import ch.paynash.pos.printing.PrintJobs;
+import ch.paynash.pos.settings.SettingsService;
 import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.staff.StaffRepository;
 
@@ -67,13 +68,27 @@ public abstract class IntegrationTest {
 	@Autowired
 	protected RecordingTicketPrinting printing;
 
+	@Autowired
+	protected SettingsService settingsService;
+
 	@BeforeEach
 	void resetState() {
 		jdbc.sql("DELETE FROM idempotency_key").update();
 		jdbc.sql("DELETE FROM print_job").update();
 		jdbc.sql("DELETE FROM printer").update();
+		jdbc.sql("DELETE FROM invoice_payment").update();
+		jdbc.sql("DELETE FROM invoice_vat").update();
+		jdbc.sql("DELETE FROM invoice_line").update();
+		jdbc.sql("DELETE FROM invoice").update();
+		jdbc.sql("DELETE FROM invoice_counter").update();
 		jdbc.sql("DELETE FROM order_line").update();
 		jdbc.sql("DELETE FROM orders").update();
+		jdbc.sql("DELETE FROM customer").update();
+		jdbc.sql("""
+				UPDATE installation_settings SET mode = 'event', business_name = NULL, street = NULL,
+				    postal_code = NULL, city = NULL, phone = NULL, email = NULL, website = NULL, iban = NULL,
+				    account_holder = NULL, vat_enabled = FALSE, vat_uid = NULL""").update();
+		settingsService.clearCache();
 		jdbc.sql("DELETE FROM dining_table").update();
 		jdbc.sql("DELETE FROM menu_item").update();
 		jdbc.sql("DELETE FROM category").update();

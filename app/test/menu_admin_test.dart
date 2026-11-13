@@ -4,17 +4,19 @@ import 'package:paynash_pos/admin/menu_admin_api.dart';
 import 'package:paynash_pos/admin/menu_admin_screen.dart';
 import 'package:paynash_pos/api/api_client.dart';
 import 'package:paynash_pos/auth/token_store.dart';
+import 'package:paynash_pos/settings/settings_models.dart';
 
 import 'support/fake_backend.dart';
 import 'support/test_image.dart';
 
 Future<FakeBackend> pumpAdmin(WidgetTester tester, void Function(FakeBackend) seed,
-    {ImagePicker? picker}) async {
+    {ImagePicker? picker, VenueMode mode = VenueMode.event, bool vat = false}) async {
   tester.view.physicalSize = const Size(1400, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final backend = FakeBackend()..addStaff('boss', 'admin', '1111');
   backend.sessions['t'] = backend.staff.first;
+  if (mode == VenueMode.salon) backend.salon.useSalon(vat: vat);
   seed(backend);
   final api = MenuAdminApi(ApiClient(
       baseUrl: 'http://backend',
@@ -22,7 +24,8 @@ Future<FakeBackend> pumpAdmin(WidgetTester tester, void Function(FakeBackend) se
       httpClient: backend.client));
   await tester.pumpWidget(MaterialApp(
       home: Scaffold(
-          body: MenuAdminScreen(api: api, pickImage: picker ?? () async => null))));
+          body: MenuAdminScreen(
+              api: api, pickImage: picker ?? () async => null, mode: mode, vatEnabled: vat))));
   await tester.pumpAndSettle();
   return backend;
 }
@@ -83,7 +86,7 @@ void main() {
     await tester.tap(find.byKey(const Key('item-save')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Type is required (food or drink)'), findsOneWidget);
+    expect(find.text('Type is required (food, drink, or service)'), findsOneWidget);
     expect(backend.items, isEmpty);
   });
 
@@ -143,5 +146,89 @@ void main() {
 
     expect(find.text('The category still contains items: Margherita'), findsOneWidget);
     expect(backend.categories, hasLength(1));
+  });
+
+  group('salon services', () {
+    testWidgets('admin creates a service with a duration and no type choice', (
+      tester,
+    ) async {
+      final backend = await pumpAdmin(
+        tester,
+        (b) => b.addCategory('Face'),
+        mode: VenueMode.salon,
+      );
+      expect(find.text('Add service'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('item-add')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('item-type')), findsNothing);
+      expect(
+        find.byKey(const Key('item-vat-rate')),
+        findsNothing,
+        reason: 'VAT is off',
+      );
+      await tester.enterText(find.byKey(const Key('item-name')), 'Facial');
+      await tester.enterText(find.byKey(const Key('item-price')), '120.00');
+      await tester.enterText(find.byKey(const Key('item-duration')), '60');
+      await tester.tap(find.byKey(const Key('item-save')));
+      await tester.pumpAndSettle();
+
+      final item = backend.items.single;
+      expect(item['type'], 'service');
+      expect(item['durationMin'], 60);
+      expect(find.text('Facial'), findsOneWidget);
+    });
+
+    testWidgets('invalid duration shows the server error', (tester) async {
+      await pumpAdmin(
+        tester,
+        (b) => b.addCategory('Face'),
+        mode: VenueMode.salon,
+      );
+      await tester.tap(find.byKey(const Key('item-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('item-name')), 'Facial');
+      await tester.enterText(find.byKey(const Key('item-price')), '120.00');
+      await tester.enterText(find.byKey(const Key('item-duration')), '900');
+      await tester.tap(find.byKey(const Key('item-save')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Duration must be between 5 and 600 minutes'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('with VAT on, the admin picks the VAT rate', (tester) async {
+      final backend = await pumpAdmin(
+        tester,
+        (b) => b.addCategory('Face'),
+        mode: VenueMode.salon,
+        vat: true,
+      );
+      await tester.tap(find.byKey(const Key('item-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('item-name')),
+        'Eyebrow tint',
+      );
+      await tester.enterText(find.byKey(const Key('item-price')), '25.00');
+      await tester.tap(find.byKey(const Key('item-vat-rate')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('2.6 %').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('item-save')));
+      await tester.pumpAndSettle();
+      expect(backend.items.single['vatRate'], '2.6');
+    });
+
+    testWidgets('event mode keeps food and drink without duration', (
+      tester,
+    ) async {
+      await pumpAdmin(tester, (b) => b.addCategory('Drinks'));
+      await tester.tap(find.byKey(const Key('item-add')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('item-type')), findsOneWidget);
+      expect(find.text('Service'), findsNothing);
+      expect(find.byKey(const Key('item-duration')), findsNothing);
+    });
   });
 }

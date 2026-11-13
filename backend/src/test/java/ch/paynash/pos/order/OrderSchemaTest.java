@@ -74,6 +74,36 @@ class OrderSchemaTest extends IntegrationTest {
 			.isInstanceOf(DataIntegrityViolationException.class);
 	}
 
+	@Test
+	void orderBelongsToATableOrACustomerButNotBoth() {
+		long customer = jdbc.sql("INSERT INTO customer (last_name) VALUES ('Meier') RETURNING id")
+			.query(Long.class)
+			.single();
+		jdbc.sql("INSERT INTO orders (customer_id, sent_by, sent_at) VALUES (?, ?, now())")
+			.params(customer, waiter)
+			.update();
+		assertThatThrownBy(() -> jdbc.sql("INSERT INTO orders (sent_by, sent_at) VALUES (?, now())")
+			.param(waiter)
+			.update()).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(
+				() -> jdbc.sql("INSERT INTO orders (table_label, customer_id, sent_by, sent_at) VALUES ('12', ?, ?, now())")
+					.params(customer, waiter)
+					.update())
+			.isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void serviceLinesKeepTheirVatRate() {
+		long order = order("12", "sent");
+		long line = line(order, menuItem(), 1, "sent");
+		assertThat(jdbc.sql("SELECT vat_rate_snapshot FROM order_line WHERE id = ?").param(line).query(Integer.class)
+			.single()).isEqualTo(81);
+		jdbc.sql("UPDATE order_line SET type_snapshot = 'service' WHERE id = ?").param(line).update();
+		assertThatThrownBy(
+				() -> jdbc.sql("UPDATE order_line SET type_snapshot = 'product' WHERE id = ?").param(line).update())
+			.isInstanceOf(DataIntegrityViolationException.class);
+	}
+
 	private long order(String table, String status) {
 		return jdbc.sql("INSERT INTO orders (table_label, status, sent_by, sent_at) VALUES (?, ?, ?, ?) RETURNING id")
 			.params(table, status, waiter, Timestamp.from(Instant.now()))

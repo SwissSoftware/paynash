@@ -43,19 +43,22 @@ public class PrintJobs implements TicketPrinting {
 
 	@Override
 	public void orderSent(Order order, List<OrderLine> lines) {
-		byType(lines).forEach((type, ofType) -> create(order.id(), type, PrintJob.Kind.NORMAL,
+		byType(lines).forEach((type, ofType) -> create(order.id(), null, type, PrintJob.Kind.NORMAL,
 				renderer.order(order, ofType), ofType.size(), null, null));
 	}
 
 	@Override
 	public void lineCancelled(Order order, OrderLine line) {
-		create(order.id(), line.type(), PrintJob.Kind.STORNO,
+		if (line.type() == ItemType.SERVICE) {
+			return; // services are never printed, so there is nothing to cancel (add-salon-mode, ticket-printing)
+		}
+		create(order.id(), null, PrintPurpose.of(line.type()), PrintJob.Kind.STORNO,
 				renderer.storno(order, List.of(line), line.cancelReason(), false), 1, null, null);
 	}
 
 	@Override
 	public void orderVoided(Order order, List<OrderLine> lines) {
-		byType(lines).forEach((type, ofType) -> create(order.id(), type, PrintJob.Kind.STORNO,
+		byType(lines).forEach((type, ofType) -> create(order.id(), null, type, PrintJob.Kind.STORNO,
 				renderer.storno(order, ofType, order.voidReason(), true), ofType.size(), null, null));
 	}
 
@@ -67,7 +70,7 @@ public class PrintJobs implements TicketPrinting {
 	@Transactional
 	public PrintJob reprint(long orderId, long jobId) {
 		PrintJob original = jobs.findForUpdate(jobId)
-			.filter(j -> j.orderId() == orderId)
+			.filter(j -> j.orderId() != null && j.orderId() == orderId)
 			.orElseThrow(() -> ApiException.notFound("Ticket"));
 		return reprint(original, null);
 	}
@@ -111,6 +114,9 @@ public class PrintJobs implements TicketPrinting {
 
 	/** Reprinting an unclear ticket also resolves it, so the station no longer asks about it. */
 	private PrintJob reprint(PrintJob original, Long stationId) {
+		if (original.orderId() == null) {
+			throw ApiException.conflict("Receipts are printed again as a copy of their invoice");
+		}
 		long orderId = original.orderId();
 		long jobId = original.id();
 		if (original.inProgress()) {
@@ -123,8 +129,8 @@ public class PrintJobs implements TicketPrinting {
 		if (original.needsResolution()) {
 			jobs.resolve(jobId, PrintJob.Resolution.REPRINT, stationId, clock.instant());
 		}
-		return jobs.find(create(orderId, original.itemType(), PrintJob.Kind.REPRINT, ticket, original.lineCount(), jobId,
-				original.ticketNo()))
+		return jobs.find(create(orderId, null, original.purpose(), PrintJob.Kind.REPRINT, ticket, original.lineCount(),
+				jobId, original.ticketNo()))
 			.orElseThrow();
 	}
 
@@ -132,25 +138,53 @@ public class PrintJobs implements TicketPrinting {
 	 * Queues the ticket for the active printer of its type. A new ticket gets the printer's next number on top
 	 * (design D3); {@code keepNo} is the number of the ticket being reprinted, whose content already shows it.
 	 */
-	private long create(long orderId, ItemType type, PrintJob.Kind kind, Ticket ticket, int lineCount, Long reprintOf,
-			Integer keepNo) {
+	private long create(Long orderId, Long invoiceId, PrintPurpose type, PrintJob.Kind kind, Ticket ticket,
+			int lineCount, Long reprintOf, Integer keepNo) {
 		return printers.findActiveFor(type).map(p -> {
 			int no = keepNo != null ? keepNo : printers.nextTicketNo(p.id());
 			Ticket content = keepNo != null ? ticket : ticket.numbered(p.name(), no);
-			return jobs.insertPending(orderId, type, p.id(), kind, content.encode(), reprintOf, no, lineCount,
-					clock.instant());
+			return jobs.insertPending(orderId, invoiceId, type, p.id(), kind, content.encode(), reprintOf, no,
+					lineCount, clock.instant());
 		})
-			.orElseGet(() -> jobs.insertFailed(orderId, type, kind, ticket.encode(), reprintOf, lineCount, NO_PRINTER,
-					clock.instant()));
+			.orElseGet(() -> jobs.insertFailed(orderId, invoiceId, type, kind, ticket.encode(), reprintOf, lineCount,
+					NO_PRINTER, clock.instant()));
 	}
 
-	/** Drinks first, then food; lines keep their order within a ticket. */
-	private static Map<ItemType, List<OrderLine>> byType(List<OrderLine> lines) {
-		Map<ItemType, List<OrderLine>> result = new LinkedHashMap<>();
+	// --- invoice receipts (add-salon-mode design D8)
+
+	/**
+	 * Queues an invoice receipt on the active receipt printer, or as failed "no printer configured". Called inside
+	 * the invoice transaction, so the receipt cannot be lost. {@code kind} is NORMAL when issuing and COPY when
+	 * printed again.
+	 */
+	public PrintJob queueReceipt(long invoiceId, PrintJob.Kind kind, Ticket receipt, int lineCount) {
+		return jobs.find(create(null, invoiceId, PrintPurpose.RECEIPT, kind, receipt, lineCount, null, null))
+			.orElseThrow();
+	}
+
+	/** The invoice's receipt jobs, oldest first. */
+	public List<PrintJob> receipts(long invoiceId) {
+		return jobs.findByInvoice(invoiceId);
+	}
+
+	/**
+	 * Marks the invoice's unclear receipts as resolved by printing a copy, so they no longer ask for a decision.
+	 */
+	public void resolveUnclearReceipts(long invoiceId) {
+		for (PrintJob job : jobs.findByInvoice(invoiceId)) {
+			if (job.needsResolution()) {
+				jobs.resolve(job.id(), PrintJob.Resolution.REPRINT, null, clock.instant());
+			}
+		}
+	}
+
+	/** Drinks first, then food; lines keep their order within a ticket. Service lines are never printed. */
+	private static Map<PrintPurpose, List<OrderLine>> byType(List<OrderLine> lines) {
+		Map<PrintPurpose, List<OrderLine>> result = new LinkedHashMap<>();
 		for (ItemType type : List.of(ItemType.DRINK, ItemType.FOOD)) {
 			List<OrderLine> ofType = lines.stream().filter(l -> l.type() == type).toList();
 			if (!ofType.isEmpty()) {
-				result.put(type, ofType);
+				result.put(PrintPurpose.of(type), ofType);
 			}
 		}
 		return result;

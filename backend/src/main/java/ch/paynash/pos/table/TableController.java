@@ -5,11 +5,14 @@ import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.RequiresMode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** The tables a waiter can pick when taking an order. */
 @RestController
+@RequiresMode(Mode.EVENT)
 @Tag(name = "Tables")
 public class TableController {
 

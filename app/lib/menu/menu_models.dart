@@ -1,4 +1,5 @@
-enum ItemType { food, drink }
+/// Food and drinks are sold in event mode, services in salon mode.
+enum ItemType { food, drink, service }
 
 /// An item as offered to waiters (active items only).
 class MenuItemData {
@@ -9,6 +10,7 @@ class MenuItemData {
     required this.price,
     this.description,
     this.imageUrl,
+    this.durationMin,
   });
 
   factory MenuItemData.fromJson(Map<String, dynamic> json) => MenuItemData(
@@ -18,6 +20,7 @@ class MenuItemData {
         price: json['price'] as String,
         description: json['description'] as String?,
         imageUrl: json['imageUrl'] as String?,
+        durationMin: json['durationMin'] as int?,
       );
 
   final int id;
@@ -28,6 +31,9 @@ class MenuItemData {
   final String price;
   final String? description;
   final String? imageUrl;
+
+  /// Services only: how long the treatment takes.
+  final int? durationMin;
 }
 
 class MenuCategoryData {

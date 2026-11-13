@@ -41,7 +41,7 @@ class PrinterStatusTest extends PrintingTestSupport {
 			.andExpect(jsonPath("$[0].statusCheckedAt").exists());
 
 		var back = fakePrinter();
-		printerRepository.update(id, "Kitchen", back.address(), "local_printer", ItemType.FOOD, true);
+		printerRepository.update(id, "Kitchen", back.address(), "local_printer", PrintPurpose.FOOD, true);
 		checkEverySecondFor(Duration.ofSeconds(15));
 		assertThat(monitor.status(id).state()).isEqualTo(PrinterState.READY);
 		assertThat(back.requests).as("checking must not print").isEmpty();
@@ -86,7 +86,7 @@ class PrinterStatusTest extends PrintingTestSupport {
 
 	@Test
 	void inactivePrinterIsNotChecked() throws Exception {
-		long id = printerRepository.insert("Spare", OFFLINE, "local_printer", ItemType.FOOD, false);
+		long id = printerRepository.insert("Spare", OFFLINE, "local_printer", PrintPurpose.FOOD, false);
 
 		monitor.checkDueNow();
 

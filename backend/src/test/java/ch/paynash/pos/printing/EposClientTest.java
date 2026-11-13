@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-import ch.paynash.pos.menu.ItemType;
 import ch.paynash.pos.printing.EposClient.Result;
 import ch.paynash.pos.support.FakeEposPrinter;
 
@@ -19,7 +18,7 @@ class EposClientTest {
 	private final EposClient client = new EposClient(Duration.ofSeconds(1), Duration.ofMillis(400));
 
 	private static Printer printer(String address) {
-		return new Printer(1, "Bar", address, "local_printer", ItemType.DRINK, true);
+		return new Printer(1, "Bar", address, "local_printer", PrintPurpose.DRINK, true);
 	}
 
 	@Test

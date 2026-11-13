@@ -20,12 +20,14 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.ShallowEtagHeaderFilter;
 
 import ch.paynash.pos.auth.AuthenticatedStaff;
-import ch.paynash.pos.menu.ItemType;
 import ch.paynash.pos.printing.PrintJob;
 import ch.paynash.pos.printing.PrintJobs;
+import ch.paynash.pos.printing.PrintPurpose;
 import ch.paynash.pos.printing.PrinterState;
 import ch.paynash.pos.printing.Ticket;
 import ch.paynash.pos.printing.TicketView;
+import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.RequiresMode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -36,6 +38,7 @@ import jakarta.validation.constraints.NotNull;
  * (design D8).
  */
 @RestController
+@RequiresMode(Mode.EVENT)
 @RequestMapping("/station")
 @Tag(name = "Station")
 public class StationController {
@@ -53,7 +56,7 @@ public class StationController {
 	 * An assigned printer with its last known state and queue: the last printed ticket number, how many tickets wait,
 	 * since when the oldest waits, and how many are unclear.
 	 */
-	public record StationPrinterView(long id, String name, ItemType type, boolean active, PrinterState status,
+	public record StationPrinterView(long id, String name, PrintPurpose type, boolean active, PrinterState status,
 			Instant statusCheckedAt, Integer lastPrintedTicketNo, String lastPrintedLabel, int waiting,
 			Instant oldestWaitingSince, Long oldestWaitingSeconds, int unclear) {
 
