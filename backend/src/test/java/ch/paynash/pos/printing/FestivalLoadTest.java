@@ -116,7 +116,7 @@ class FestivalLoadTest extends PrintingTestSupport {
 		for (long orderId : orders) {
 			List<PrintJob> ofOrder = jobs(orderId);
 			assertThat(ofOrder).as("one ticket per printer for order %d", orderId)
-				.extracting(PrintJob::itemType)
+				.extracting(PrintJob::purpose)
 				.doesNotHaveDuplicates();
 			assertThat(ofOrder).allSatisfy(j -> {
 				assertThat(j.kind()).isEqualTo(PrintJob.Kind.NORMAL);
@@ -142,11 +142,11 @@ class FestivalLoadTest extends PrintingTestSupport {
 		assertThat(bar.requests.size()).as("the bar was retried during the paper end")
 			.isGreaterThan(bar.possiblyPrintedTickets().size());
 
-		for (ItemType type : ItemType.values()) {
-			assertThat(tickets).filteredOn(t -> t.itemType() == type)
+		for (PrintPurpose type : List.of(PrintPurpose.DRINK, PrintPurpose.FOOD)) {
+			assertThat(tickets).filteredOn(t -> t.purpose() == type)
 				.extracting(PrintJob::ticketNo)
 				.containsExactlyInAnyOrderElementsOf(IntStream.rangeClosed(1,
-						(int) tickets.stream().filter(t -> t.itemType() == type).count()).boxed().toList());
+						(int) tickets.stream().filter(t -> t.purpose() == type).count()).boxed().toList());
 		}
 	}
 

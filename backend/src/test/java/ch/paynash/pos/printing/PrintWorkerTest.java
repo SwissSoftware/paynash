@@ -68,7 +68,7 @@ class PrintWorkerTest extends PrintingTestSupport {
 			.andExpect(jsonPath("$[0].printError").value("printer offline"));
 
 		var kitchen = fakePrinter();
-		printerRepository.update(kitchenId, "Kitchen", kitchen.address(), "local_printer", ItemType.FOOD, true);
+		printerRepository.update(kitchenId, "Kitchen", kitchen.address(), "local_printer", PrintPurpose.FOOD, true);
 		runFor(Duration.ofSeconds(20));
 
 		assertThat(kitchen.requests).hasSize(1);

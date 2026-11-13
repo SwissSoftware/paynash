@@ -79,7 +79,7 @@ class SendOrderTest extends OrderTestSupport {
 	@Test
 	void laterMenuChangesDoNotChangeASentOrder() throws Exception {
 		long order = sendOrder(anna, "12", line(cola, 1));
-		menu.updateItem(cola, drinks, "Coca-Cola", ItemType.DRINK, 500, null, true);
+		menu.updateItem(cola, drinks, "Coca-Cola", ItemType.DRINK, 500, null, true, null, 81);
 
 		as(anna, get("/orders/" + order))
 			.andExpect(jsonPath("$.lines[0].name").value("Cola"))
@@ -119,7 +119,7 @@ class SendOrderTest extends OrderTestSupport {
 
 	@Test
 	void inactiveItemsRejectTheWholeOrder() throws Exception {
-		menu.updateItem(cola, drinks, "Cola", ItemType.DRINK, 450, null, false);
+		menu.updateItem(cola, drinks, "Cola", ItemType.DRINK, 450, null, false, null, 81);
 
 		send(anna, "12", line(margherita, 1), line(cola, 1), line(cola, 2)).andExpect(status().isConflict())
 			.andExpect(jsonPath("$.detail").value("Cola no longer available"))

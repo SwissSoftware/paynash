@@ -13,6 +13,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
+import ch.paynash.pos.settings.Mode;
+
 class ItemAdminTest extends MenuTestSupport {
 
 	private long hotDrinks;
@@ -68,7 +70,7 @@ class ItemAdminTest extends MenuTestSupport {
 	@Test
 	void missingTypeIsRejected() throws Exception {
 		postItem(json("categoryId", hotDrinks, "name", "X", "price", "1.00")).andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.type").value("Type is required (food or drink)"));
+			.andExpect(jsonPath("$.errors.type").value("Type is required (food, drink, or service)"));
 	}
 
 	@Test
@@ -155,6 +157,63 @@ class ItemAdminTest extends MenuTestSupport {
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(json("categoryId", hotDrinks, "name", "X", "type", "drink", "price", "1.00")))
 			.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void createServiceInSalonMode() throws Exception {
+		settingsService.changeMode(Mode.SALON);
+		long face = createCategory("Face");
+		postItem(json("categoryId", face, "name", "Facial", "type", "service", "price", "120.00", "durationMin", 60))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.type").value("service"))
+			.andExpect(jsonPath("$.durationMin").value(60))
+			.andExpect(jsonPath("$.vatRate").value("8.1"));
+	}
+
+	@Test
+	void foodIsRejectedInSalonMode() throws Exception {
+		settingsService.changeMode(Mode.SALON);
+		postItem(json("categoryId", hotDrinks, "name", "Pizza", "type", "food", "price", "18.00"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.type").value("Only services can be created in salon mode"));
+	}
+
+	@Test
+	void serviceIsRejectedInEventMode() throws Exception {
+		postItem(json("categoryId", hotDrinks, "name", "Facial", "type", "service", "price", "120.00"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.type").value("Services are only available in salon mode"));
+	}
+
+	@Test
+	void invalidDurationIsRejected() throws Exception {
+		settingsService.changeMode(Mode.SALON);
+		for (int minutes : new int[] { 0, 900 }) {
+			postItem(json("categoryId", hotDrinks, "name", "Facial", "type", "service", "price", "120.00",
+					"durationMin", minutes))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.errors.durationMin").value("Duration must be between 5 and 600 minutes"));
+		}
+	}
+
+	@Test
+	void vatRateDefaultsTo81AndOnlyAllowedRatesAreAccepted() throws Exception {
+		postItem(json("categoryId", hotDrinks, "name", "Tea", "type", "drink", "price", "4.00", "vatRate", "2.6"))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.vatRate").value("2.6"));
+		postItem(json("categoryId", hotDrinks, "name", "Cola", "type", "drink", "price", "4.00", "vatRate", "7.7"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.vatRate").value("VAT rate must be one of 8.1, 2.6, 3.8, or 0"));
+	}
+
+	@Test
+	void editWithoutVatRateKeepsTheCurrentRate() throws Exception {
+		long tea = createItem(hotDrinks, "Tea", "drink", "4.00");
+		update(tea, json("categoryId", hotDrinks, "name", "Tea", "type", "drink", "price", "4.00", "vatRate", "0"))
+			.andExpect(jsonPath("$.vatRate").value("0.0"));
+		update(tea, json("categoryId", hotDrinks, "name", "Tea", "type", "drink", "price", "4.20"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.vatRate").value("0.0"));
 	}
 
 	private ResultActions postItem(String body) throws Exception {

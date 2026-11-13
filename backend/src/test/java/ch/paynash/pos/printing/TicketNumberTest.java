@@ -49,11 +49,11 @@ class TicketNumberTest extends PrintingTestSupport {
 
 	@Test
 	void ticketWithoutPrinterHasNoNumberAndItsReprintGetsTheNextOne() throws Exception {
-		jdbc.sql("UPDATE printer SET active = false WHERE item_type = 'food'").update();
+		jdbc.sql("UPDATE printer SET active = false WHERE purpose = 'food'").update();
 		long id = sendOrder(waiter, "1", line(pizza, 1));
 		PrintJob failed = job(id, ItemType.FOOD);
 		assertThat(failed.ticketNo()).isNull();
-		jdbc.sql("UPDATE printer SET active = true WHERE item_type = 'food'").update();
+		jdbc.sql("UPDATE printer SET active = true WHERE purpose = 'food'").update();
 
 		postJson(waiter, "/orders/" + id + "/tickets/" + failed.id() + "/reprint", "");
 

@@ -49,7 +49,7 @@ public abstract class PrintingTestSupport extends IntegrationTest {
 	}
 
 	protected long printer(String name, String address, ItemType type) {
-		return printerRepository.insert(name, address, "local_printer", type, true);
+		return printerRepository.insert(name, address, "local_printer", PrintPurpose.of(type), true);
 	}
 
 	/** An address where nothing listens, so connecting is refused at once. */
@@ -62,7 +62,7 @@ public abstract class PrintingTestSupport extends IntegrationTest {
 			.findFirst()
 			.map(c -> c.id())
 			.orElseGet(() -> menu.insertCategory(category));
-		return menu.insertItem(categoryId, name, type, 450, null, true);
+		return menu.insertItem(categoryId, name, type, 450, null, true, null, 81);
 	}
 
 	protected ResultActions as(String token, MockHttpServletRequestBuilder request) throws Exception {
@@ -97,7 +97,7 @@ public abstract class PrintingTestSupport extends IntegrationTest {
 	}
 
 	protected PrintJob job(long orderId, ItemType type) {
-		return jobs(orderId).stream().filter(j -> j.itemType() == type).findFirst().orElseThrow();
+		return jobs(orderId).stream().filter(j -> j.purpose() == PrintPurpose.of(type)).findFirst().orElseThrow();
 	}
 
 	protected long lineId(long orderId, String name) {

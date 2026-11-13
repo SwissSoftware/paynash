@@ -3,14 +3,23 @@ import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
 import '../auth/session.dart';
+import '../settings/settings_models.dart';
 import 'staff_api.dart';
 
 /// Admin: list, create, edit/deactivate staff and reset PINs.
 class StaffScreen extends StatefulWidget {
-  const StaffScreen({super.key, required this.api, required this.me});
+  const StaffScreen({
+    super.key,
+    required this.api,
+    required this.me,
+    this.terms = const Terms(VenueMode.event),
+  });
 
   final StaffApi api;
   final Me me;
+
+  /// In salon mode the `waiter` role is called "staff", and there are no stations.
+  final Terms terms;
 
   @override
   State<StaffScreen> createState() => _StaffScreenState();
@@ -43,7 +52,7 @@ class _StaffScreenState extends State<StaffScreen> {
   Future<void> _openForm([StaffMember? member]) async {
     final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => _StaffFormDialog(api: widget.api, member: member),
+      builder: (_) => _StaffFormDialog(api: widget.api, member: member, terms: widget.terms),
     );
     if (saved == true) await _load();
   }
@@ -90,7 +99,8 @@ class _StaffScreenState extends State<StaffScreen> {
                                 : const TextStyle(
                                     decoration: TextDecoration.lineThrough)),
                         subtitle: Text(
-                            '${m.username} · ${m.role.name}${m.active ? '' : ' · inactive'}'),
+                            '${m.username} · ${_roleLabel(m.role, widget.terms).toLowerCase()}'
+                            '${m.active ? '' : ' · inactive'}'),
                         onTap: () => _openForm(m),
                         trailing: IconButton(
                           tooltip: 'Reset PIN',
@@ -112,10 +122,11 @@ final _pinFormatters = [
 ];
 
 class _StaffFormDialog extends StatefulWidget {
-  const _StaffFormDialog({required this.api, this.member});
+  const _StaffFormDialog({required this.api, this.member, required this.terms});
 
   final StaffApi api;
   final StaffMember? member;
+  final Terms terms;
 
   @override
   State<_StaffFormDialog> createState() => _StaffFormDialogState();
@@ -216,10 +227,13 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
               ),
             const SizedBox(height: 16),
             SegmentedButton<Role>(
-              segments: const [
-                ButtonSegment(value: Role.waiter, label: Text('Waiter')),
-                ButtonSegment(value: Role.admin, label: Text('Admin')),
-                ButtonSegment(value: Role.station, label: Text('Station')),
+              segments: [
+                for (final role in [Role.waiter, Role.admin, Role.station])
+                  // Salon mode has no station view (spec staff-access).
+                  if (role != Role.station ||
+                      widget.terms.mode == VenueMode.event ||
+                      _role == Role.station)
+                    ButtonSegment(value: role, label: Text(_roleLabel(role, widget.terms))),
               ],
               selected: {_role},
               onSelectionChanged: (s) => setState(() => _role = s.first),
@@ -323,3 +337,10 @@ class _ResetPinDialogState extends State<_ResetPinDialog> {
     );
   }
 }
+
+/// "Waiter" is shown as "Staff" in salon mode (spec venue-mode, "Salon terms").
+String _roleLabel(Role role, Terms terms) => switch (role) {
+      Role.waiter => terms.waiter,
+      Role.admin => 'Admin',
+      Role.station => 'Station',
+    };

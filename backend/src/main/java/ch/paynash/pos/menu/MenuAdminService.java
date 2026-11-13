@@ -12,6 +12,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import ch.paynash.pos.common.ApiException;
 import ch.paynash.pos.common.Money;
+import ch.paynash.pos.common.VatRates;
+import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.SettingsService;
 
 @Service
 public class MenuAdminService {
@@ -20,9 +23,12 @@ public class MenuAdminService {
 
 	private final ImageStore images;
 
-	public MenuAdminService(MenuRepository menu, ImageStore images) {
+	private final SettingsService settings;
+
+	public MenuAdminService(MenuRepository menu, ImageStore images, SettingsService settings) {
 		this.menu = menu;
 		this.images = images;
+		this.settings = settings;
 	}
 
 	// --- categories
@@ -80,15 +86,20 @@ public class MenuAdminService {
 		return menu.findAllItems();
 	}
 
+	/**
+	 * {@code vatRate} is a percentage such as "8.1"; null keeps the current rate (8.1 % for new items), because the
+	 * apps only show it while VAT is on (spec menu-catalog, "VAT rate per item").
+	 */
 	public record ItemInput(long categoryId, String name, ItemType type, String price, String description,
-			boolean active) {
+			boolean active, Integer durationMin, String vatRate) {
 	}
 
 	@Transactional
 	public MenuItem createItem(ItemInput in) {
 		category(in.categoryId(), "categoryId");
+		requireTypeForMode(in.type());
 		long id = menu.insertItem(in.categoryId(), in.name().trim(), in.type(), price(in.price()),
-				blankToNull(in.description()), in.active());
+				blankToNull(in.description()), in.active(), duration(in), vatRate(in.vatRate(), VatRates.STANDARD));
 		return item(id);
 	}
 
@@ -96,8 +107,10 @@ public class MenuAdminService {
 	public MenuItem updateItem(long id, ItemInput in) {
 		MenuItem current = item(id);
 		category(in.categoryId(), "categoryId");
+		requireTypeForMode(in.type());
 		menu.updateItem(id, in.categoryId(), in.name().trim(), in.type(), price(in.price()),
-				blankToNull(in.description()), in.active());
+				blankToNull(in.description()), in.active(), duration(in),
+				vatRate(in.vatRate(), current.vatRatePermille()));
 		if (current.categoryId() != in.categoryId()) {
 			menu.moveItemToEnd(id, in.categoryId());
 		}
@@ -180,6 +193,42 @@ public class MenuAdminService {
 		if (ids.size() != existing.size() || !existing.equals(new HashSet<>(ids))) {
 			throw ApiException.validation("ids", "Must list every entry exactly once");
 		}
+	}
+
+	/** Salon mode sells only services, event mode never does (spec menu-catalog, "Item types per mode"). */
+	private void requireTypeForMode(ItemType type) {
+		boolean salon = settings.mode() == Mode.SALON;
+		if (salon && type != ItemType.SERVICE) {
+			throw ApiException.validation("type", "Only services can be created in salon mode");
+		}
+		if (!salon && type == ItemType.SERVICE) {
+			throw ApiException.validation("type", "Services are only available in salon mode");
+		}
+	}
+
+	private static Integer duration(ItemInput in) {
+		Integer minutes = in.durationMin();
+		if (minutes == null) {
+			return null;
+		}
+		if (in.type() != ItemType.SERVICE) {
+			throw ApiException.validation("durationMin", "Only services have a duration");
+		}
+		if (minutes < 5 || minutes > 600) {
+			throw ApiException.validation("durationMin", "Duration must be between 5 and 600 minutes");
+		}
+		return minutes;
+	}
+
+	private static int vatRate(String value, int fallback) {
+		if (value == null || value.isBlank()) {
+			return fallback;
+		}
+		Integer permille = VatRates.parse(value);
+		if (permille == null) {
+			throw ApiException.validation("vatRate", "VAT rate must be one of 8.1, 2.6, 3.8, or 0");
+		}
+		return permille;
 	}
 
 	private static int price(String value) {

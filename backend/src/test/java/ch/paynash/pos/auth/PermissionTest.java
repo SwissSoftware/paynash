@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
+import ch.paynash.pos.settings.Mode;
 import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.support.IntegrationTest;
 
@@ -82,6 +83,40 @@ class PermissionTest extends IntegrationTest {
 	@Test
 	void healthAndLoginArePublic() throws Exception {
 		mvc.perform(get("/health")).andExpect(status().isOk());
+	}
+
+	@Test
+	void salonModeRejectsTableAndStationFunctions() throws Exception {
+		createStaff("boss", Role.ADMIN, "1111");
+		createStaff("station-bar", Role.STATION, "5555");
+		String stationToken = login("station-bar", "5555");
+		String admin = login("boss", "1111");
+		settingsService.changeMode(Mode.SALON);
+
+		for (String path : new String[] { "/tables", "/admin/tables" }) {
+			mvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("wrong_mode"));
+		}
+		mvc.perform(get("/station/printers").header(HttpHeaders.AUTHORIZATION, bearer(stationToken)))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("wrong_mode"));
+		mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+			.content(json("username", "station-bar", "pin", "5555")))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.detail").value("Station accounts cannot log in in salon mode"));
+	}
+
+	@Test
+	void eventModeKeepsTableAndStationFunctions() throws Exception {
+		createStaff("boss", Role.ADMIN, "1111");
+		createStaff("station-bar", Role.STATION, "5555");
+		String admin = login("boss", "1111");
+		mvc.perform(get("/tables").header(HttpHeaders.AUTHORIZATION, bearer(admin))).andExpect(status().isOk());
+		mvc.perform(get("/admin/tables").header(HttpHeaders.AUTHORIZATION, bearer(admin))).andExpect(status().isOk());
+		String station = login("station-bar", "5555");
+		mvc.perform(get("/station/printers").header(HttpHeaders.AUTHORIZATION, bearer(station)))
+			.andExpect(status().isOk());
 	}
 
 }

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+part 'fake_salon.dart';
+
 class FakeStaff {
   FakeStaff(this.id, this.username, this.displayName, this.role, this.pin);
   final int id;
@@ -58,9 +60,13 @@ class FakeBackend {
     String price, {
     bool active = true,
     String? imageUrl,
+    int? durationMin,
+    String vatRate = '8.1',
   }) {
     final id = _nextMenuId++;
     items.add({
+      'durationMin': durationMin,
+      'vatRate': vatRate,
       'id': id,
       'categoryId': categoryId,
       'name': name,
@@ -91,6 +97,8 @@ class FakeBackend {
                     'price': i['price'],
                     'description': i['description'],
                     'imageUrl': i['imageUrl'],
+                    'durationMin': i['durationMin'],
+                    'vatRate': i['vatRate'],
                   },
             ],
           },
@@ -142,6 +150,8 @@ class FakeBackend {
         body['type'] as String,
         body['price'] as String,
         active: body['active'] as bool? ?? true,
+        durationMin: body['durationMin'] as int?,
+        vatRate: body['vatRate'] as String? ?? '8.1',
       );
       return _json(201, items.firstWhere((i) => i['id'] == id));
     }
@@ -164,15 +174,22 @@ class FakeBackend {
         ..['name'] = body['name']
         ..['type'] = body['type']
         ..['price'] = body['price']
-        ..['active'] = body['active'];
+        ..['active'] = body['active']
+        ..['durationMin'] = body['durationMin']
+        ..['vatRate'] = body['vatRate'] ?? i['vatRate'];
       return _json(200, i);
     }
     return null;
   }
 
-  static Map<String, String> _validateItem(Map<String, dynamic> b) => {
+  Map<String, String> _validateItem(Map<String, dynamic> b) => {
     if ((b['name'] as String? ?? '').trim().isEmpty) 'name': 'must not be blank',
-    if (b['type'] == null) 'type': 'Type is required (food or drink)',
+    if (b['type'] == null) 'type': 'Type is required (food, drink, or service)',
+    if (b['type'] != null && salon.isSalon && b['type'] != 'service')
+      'type': 'Only services can be created in salon mode',
+    if (b['durationMin'] != null &&
+        ((b['durationMin'] as int) < 5 || (b['durationMin'] as int) > 600))
+      'durationMin': 'Duration must be between 5 and 600 minutes',
     if (!RegExp(r'^\d{1,5}(\.\d{1,2})?$').hasMatch(b['price'] as String? ?? ''))
       'price': 'Price must be at least 0.00 with at most two decimals',
   };
@@ -201,7 +218,7 @@ class FakeBackend {
 
   /// Saves a sent order, as another device would. [lines] are (item id, qty).
   Map<String, dynamic> addSentOrder(
-    String table,
+    String? table,
     FakeStaff waiter,
     List<(int, int)> lines, {
     String sentAt = '2026-10-29T18:30:00Z',
@@ -303,9 +320,47 @@ class FakeBackend {
   static int _lineTotal(Map<String, dynamic> l) =>
       l['status'] == 'cancelled' ? 0 : (l['qty'] as int) * _rappen(l['unitPrice'] as String);
 
+  /// Salon orders belong to a customer and print no tickets.
+  http.Response _confirmSalonOrder(Map<String, dynamic> body, FakeStaff me) {
+    final customerId = body['customerId'] as int?;
+    if (customerId == null) {
+      return _problem(400, 'Validation failed', {'customerId': 'Customer is required'});
+    }
+    final c = salon.customer(customerId);
+    if (c['active'] != true) {
+      return _json(409, {
+        'status': 409,
+        'detail': '${FakeSalon.customerName(c)} is no longer active',
+        'inactiveCustomerId': customerId,
+      });
+    }
+    final order = addSentOrder(null, me, const [])
+      ..['customerId'] = customerId
+      ..['customerNumber'] = c['number']
+      ..['customerName'] = FakeSalon.customerName(c);
+    for (final l in (body['lines'] as List).cast<Map<String, dynamic>>()) {
+      final note = (l['note'] as String?)?.trim();
+      (order['lines'] as List).add(
+        _line(l['menuItemId'] as int, l['qty'] as int, note == null || note.isEmpty ? null : note),
+      );
+    }
+    return _json(201, _orderJson(order));
+  }
+
+  Map<String, dynamic> _invoiceRef(Map<String, dynamic> o) {
+    final i = salon.invoiceOf(o['id'] as int);
+    return {
+      'customerId': o['customerId'],
+      'customerNumber': o['customerNumber'],
+      'customerName': o['customerName'],
+      'invoice': i == null ? null : {'id': i['id'], 'number': i['number'], 'status': i['status']},
+    };
+  }
+
   Map<String, dynamic> _orderJson(Map<String, dynamic> o) {
     final lines = (o['lines'] as List).cast<Map<String, dynamic>>();
     return {
+      ..._invoiceRef(o),
       'id': o['id'],
       'tableLabel': o['tableLabel'],
       'status': o['status'],
@@ -358,9 +413,11 @@ class FakeBackend {
             'total': _orderJson(o)['total'],
             'printStatus': _printStatus(o).$1,
             'printError': _printStatus(o).$2,
+            ..._invoiceRef(o),
           },
       ]);
     }
+    if (path == '/orders' && r.method == 'POST' && salon.isSalon) return _confirmSalonOrder(body!, me);
     if (path == '/orders' && r.method == 'POST') {
       final label = (body!['tableLabel'] as String).trim().toUpperCase();
       if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(label)) {
@@ -751,6 +808,9 @@ class FakeBackend {
     return _json(200, t);
   }
 
+  /// Settings, customers, invoices, and the sales report (add-salon-mode).
+  late final salon = FakeSalon(this);
+
   late final http.Client client = MockClient(_handle);
 
   Future<http.Response> _handle(http.Request r) async {
@@ -789,6 +849,8 @@ class FakeBackend {
     if (path.startsWith('/admin/') && me.role != 'admin') {
       return _problem(403, 'Forbidden');
     }
+    final salonResponse = salon._routes(r, body, me);
+    if (salonResponse != null) return salonResponse;
     final stationResponse = _stationRoutes(r, body, me);
     if (stationResponse != null) return stationResponse;
     final exportResponse = _exportRoute(r, me);

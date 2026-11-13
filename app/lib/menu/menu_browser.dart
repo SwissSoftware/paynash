@@ -125,7 +125,13 @@ class MenuTile extends StatelessWidget {
                 children: [
                   Text(item.name,
                       style: text.titleSmall, maxLines: 2, overflow: TextOverflow.ellipsis),
-                  Text('CHF ${item.price}', style: text.bodySmall),
+                  Text(
+                    item.durationMin == null
+                        ? 'CHF ${item.price}'
+                        : 'CHF ${item.price} · ${item.durationMin} min',
+                    key: Key('menu-tile-price-${item.id}'),
+                    style: text.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -136,7 +142,8 @@ class MenuTile extends StatelessWidget {
   }
 }
 
-/// Shown in the image area when an item has no image: a food or drink icon.
+/// Shown in the image area when an item has no image: a food, drink, or
+/// service icon.
 /// The tile shows the name below it, so it is not repeated here; on small
 /// tiles (phones) it would not fit.
 class ItemPlaceholder extends StatelessWidget {

@@ -49,6 +49,7 @@ public class SecurityConfig {
 				.requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
 				.requestMatchers("/v3/api-docs/**").permitAll()
 				.requestMatchers("/auth/**").authenticated()
+				.requestMatchers(HttpMethod.GET, "/settings").authenticated()
 				.requestMatchers("/station/**").hasRole("STATION")
 				.requestMatchers("/admin/**", "/exports/**").hasRole("ADMIN")
 				.anyRequest().hasRole("WAITER"))

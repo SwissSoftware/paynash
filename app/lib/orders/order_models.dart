@@ -11,11 +11,17 @@ class OrderSummary {
     required this.total,
     this.printStatus,
     this.printError,
+    this.customerNumber,
+    this.customerName,
+    this.invoice,
   });
 
   factory OrderSummary.fromJson(Map<String, dynamic> json) => OrderSummary(
     id: json['id'] as int,
-    tableLabel: json['tableLabel'] as String,
+    tableLabel: json['tableLabel'] as String?,
+    customerNumber: json['customerNumber'] as int?,
+    customerName: json['customerName'] as String?,
+    invoice: InvoiceRef.fromJsonOrNull(json['invoice']),
     status: OrderStatus.values.byName(json['status'] as String),
     waiter: json['waiter'] as String,
     sentAt: DateTime.parse(json['sentAt'] as String),
@@ -28,11 +34,21 @@ class OrderSummary {
   );
 
   final int id;
-  final String tableLabel;
+
+  /// Event mode; salon orders have a customer instead.
+  final String? tableLabel;
+  final int? customerNumber;
+  final String? customerName;
+
+  /// The invoice of a salon order, or null while it is not invoiced.
+  final InvoiceRef? invoice;
   final OrderStatus status;
   final String waiter;
   final DateTime sentAt;
   final String total;
+
+  /// "Table 12" or the customer's name.
+  String get title => tableLabel != null ? 'Table $tableLabel' : customerName ?? '';
 
   /// The state of the order's tickets, ignoring tickets that were reprinted:
   /// failed if any failed, else unclear if any may or may not have printed,
@@ -43,6 +59,28 @@ class OrderSummary {
 }
 
 enum OrderStatus { sent, voided }
+
+/// The invoice of a salon order: the one that is not cancelled, else the latest
+/// cancelled one. [status] is open, paid, or cancelled.
+class InvoiceRef {
+  InvoiceRef({required this.id, required this.number, required this.status});
+
+  static InvoiceRef? fromJsonOrNull(Object? json) => switch (json) {
+    final Map<String, dynamic> j => InvoiceRef(
+      id: j['id'] as int,
+      number: j['number'] as String,
+      status: j['status'] as String,
+    ),
+    _ => null,
+  };
+
+  final int id;
+  final String number;
+  final String status;
+
+  /// "2026-0042 · paid".
+  String get label => '$number · $status';
+}
 
 /// pending: waiting for its turn or for the printer (offline, paper end);
 /// printing: at the printer right now; unclear: may or may not have printed;
@@ -174,11 +212,19 @@ class OrderData {
     this.voidReason,
     this.voidedBy,
     this.voidedAtStation,
+    this.customerId,
+    this.customerNumber,
+    this.customerName,
+    this.invoice,
   });
 
   factory OrderData.fromJson(Map<String, dynamic> json) => OrderData(
     id: json['id'] as int,
-    tableLabel: json['tableLabel'] as String,
+    tableLabel: json['tableLabel'] as String?,
+    customerId: json['customerId'] as int?,
+    customerNumber: json['customerNumber'] as int?,
+    customerName: json['customerName'] as String?,
+    invoice: InvoiceRef.fromJsonOrNull(json['invoice']),
     status: OrderStatus.values.byName(json['status'] as String),
     waiter: json['waiter'] as String,
     sentAt: DateTime.parse(json['sentAt'] as String),
@@ -197,10 +243,23 @@ class OrderData {
   );
 
   final int id;
-  final String tableLabel;
+
+  /// Event mode; salon orders have a customer instead.
+  final String? tableLabel;
+  final int? customerId;
+  final int? customerNumber;
+  final String? customerName;
+
+  /// The invoice of a salon order, or null while it is not invoiced.
+  final InvoiceRef? invoice;
   final OrderStatus status;
   final String waiter;
   final DateTime sentAt;
+
+  bool get isSalon => customerId != null;
+
+  /// "Table 12" or the customer's name.
+  String get title => tableLabel != null ? 'Table $tableLabel' : customerName ?? '';
 
   /// Sent back when voiding, so cancellations made meanwhile are not overlooked.
   final int version;

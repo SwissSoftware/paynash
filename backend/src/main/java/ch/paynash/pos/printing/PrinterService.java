@@ -7,7 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import ch.paynash.pos.common.ApiException;
-import ch.paynash.pos.menu.ItemType;
+import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.SettingsService;
 
 /** Printer configuration (spec ticket-printing, "Printer configuration"). */
 @Service
@@ -19,13 +20,17 @@ public class PrinterService {
 
 	private final TicketRenderer renderer;
 
-	public PrinterService(PrinterRepository printers, EposClient epos, TicketRenderer renderer) {
+	private final SettingsService settings;
+
+	public PrinterService(PrinterRepository printers, EposClient epos, TicketRenderer renderer,
+			SettingsService settings) {
 		this.printers = printers;
 		this.epos = epos;
 		this.renderer = renderer;
+		this.settings = settings;
 	}
 
-	public record PrinterInput(String name, String address, String deviceId, ItemType type, boolean active) {
+	public record PrinterInput(String name, String address, String deviceId, PrintPurpose type, boolean active) {
 	}
 
 	public List<Printer> list() {
@@ -72,15 +77,26 @@ public class PrinterService {
 		return printers.findById(id).orElseThrow(() -> ApiException.notFound("Printer"));
 	}
 
-	/** At most one active printer per type, so every line has exactly one destination. */
+	/**
+	 * At most one active printer per type, so every line has exactly one destination. A salon prints only receipts,
+	 * an event only food and drink tickets (add-salon-mode, spec ticket-printing "Printer configuration").
+	 */
 	private void check(PrinterInput in, long id) {
+		boolean salon = settings.mode() == Mode.SALON;
+		if (salon && in.type() != PrintPurpose.RECEIPT) {
+			throw ApiException.validation("type", "In salon mode a printer prints receipts");
+		}
+		if (!salon && in.type() == PrintPurpose.RECEIPT) {
+			throw ApiException.validation("type", "Receipt printers are only available in salon mode");
+		}
 		if (printers.existsByName(in.name().trim(), id)) {
 			throw ApiException.validation("name", "A printer with this name already exists");
 		}
 		if (in.active()) {
 			printers.findOtherActiveFor(in.type(), id).ifPresent(other -> {
 				throw ApiException.validation("type",
-						"\"" + other.name() + "\" already prints " + in.type().dbValue() + ". Deactivate it first.");
+						"\"" + other.name() + "\" already prints " + in.type().dbValue()
+								+ (in.type() == PrintPurpose.RECEIPT ? "s" : "") + ". Deactivate it first.");
 			});
 		}
 	}

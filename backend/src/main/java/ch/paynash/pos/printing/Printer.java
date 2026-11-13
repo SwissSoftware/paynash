@@ -1,10 +1,8 @@
 package ch.paynash.pos.printing;
 
-import ch.paynash.pos.menu.ItemType;
-
 /**
  * An Epson printer reached over ePOS-Print. {@code address} is a host or IP, optionally with port, or a full
- * {@code http(s)://} base URL.
+ * {@code http(s)://} base URL. {@code purpose} says whether it prints food or drink tickets, or invoice receipts.
  */
-public record Printer(long id, String name, String address, String deviceId, ItemType itemType, boolean active) {
+public record Printer(long id, String name, String address, String deviceId, PrintPurpose purpose, boolean active) {
 }

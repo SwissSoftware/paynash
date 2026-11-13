@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import ch.paynash.pos.menu.ItemType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -40,21 +39,21 @@ public class PrinterAdminController {
 	 * {@code status} is the printer's last known state and {@code statusCheckedAt} when it was seen.
 	 * {@code stations} are the active stations showing the printer, each with the time of its last poll.
 	 */
-	public record PrinterView(long id, String name, String address, String deviceId, ItemType type, boolean active,
+	public record PrinterView(long id, String name, String address, String deviceId, PrintPurpose type, boolean active,
 			PrinterState status, Instant statusCheckedAt, List<PrinterRepository.StationSeen> stations) {
 
 	}
 
 	private PrinterView view(Printer p) {
 		PrinterStatusMonitor.Status s = monitor.status(p.id());
-		return new PrinterView(p.id(), p.name(), p.address(), p.deviceId(), p.itemType(), p.active(), s.state(),
+		return new PrinterView(p.id(), p.name(), p.address(), p.deviceId(), p.purpose(), p.active(), s.state(),
 				s.checkedAt(), service.stationsShowing(p.id()));
 	}
 
 	public record PrinterRequest(@NotBlank @Size(max = 60) String name,
 			@NotBlank @Size(max = 255) @Pattern(regexp = "\\s*(https?://)?[A-Za-z0-9.\\-\\[\\]:]+/?\\s*",
 					message = "Enter an IP address or host name, optionally with port") String address,
-			@Size(max = 60) String deviceId, @NotNull(message = "Type is required (food or drink)") ItemType type,
+			@Size(max = 60) String deviceId, @NotNull(message = "Type is required (food, drink, or receipt)") PrintPurpose type,
 			Boolean active) {
 
 		PrinterService.PrinterInput toInput() {

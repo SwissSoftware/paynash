@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../invoices/invoice_api.dart';
+import '../invoices/invoice_screen.dart';
 import '../menu/item_visuals.dart';
 import '../menu/menu_models.dart';
 import 'order_api.dart';
@@ -18,11 +20,15 @@ class OrderDetailScreen extends StatefulWidget {
     required this.orderId,
     required this.orderApi,
     required this.isAdmin,
+    this.invoiceApi,
   });
 
   final int orderId;
   final OrderApi orderApi;
   final bool isAdmin;
+
+  /// Salon mode: issue and open the order's invoice.
+  final InvoiceApi? invoiceApi;
 
   @override
   State<OrderDetailScreen> createState() => _OrderDetailScreenState();
@@ -90,8 +96,38 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
   Future<void> _reprint(TicketData ticket) =>
       _run(() => widget.orderApi.reprint(widget.orderId, ticket.id));
 
+  /// Issues the invoice of a confirmed salon order, e.g. one that was confirmed
+  /// without invoicing (spec order-taking, "Order history in salon mode").
+  Future<void> _issue(OrderData order) async {
+    setState(() => _busy = true);
+    try {
+      final invoice = await widget.invoiceApi!.issue(order.id, newIdempotencyKey());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invoice ${invoice.number} issued')),
+      );
+    } on ApiError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    await poll();
+  }
+
+  Future<void> _openInvoice(InvoiceRef invoice) async {
+    await openInvoice(context, widget.invoiceApi!, invoice.id, isAdmin: widget.isAdmin);
+    await poll();
+  }
+
   Future<void> _void(OrderData order) async {
-    final reason = await _askReason('Void the order for table ${order.tableLabel}?', 'Void order');
+    final reason = await _askReason(
+      order.isSalon
+          ? 'Void the order of ${order.customerName}?'
+          : 'Void the order for table ${order.tableLabel}?',
+      'Void order',
+    );
     if (reason == null) return;
     await _run(() => widget.orderApi.voidOrder(order, reason));
   }
@@ -153,6 +189,25 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
                 ),
               ),
             ),
+          if (order.isSalon && order.status == OrderStatus.sent && widget.invoiceApi != null)
+            ListTile(
+              key: const Key('order-invoice'),
+              leading: const Icon(Icons.receipt),
+              title: Text(
+                order.invoice == null ? 'Not invoiced' : 'Invoice ${order.invoice!.label}',
+              ),
+              trailing: order.invoice == null || order.invoice!.status == 'cancelled'
+                  ? FilledButton(
+                      key: const Key('order-issue-invoice'),
+                      onPressed: _busy || _offline ? null : () => _issue(order),
+                      child: const Text('Issue invoice'),
+                    )
+                  : OutlinedButton(
+                      key: const Key('order-open-invoice'),
+                      onPressed: () => _openInvoice(order.invoice!),
+                      child: const Text('Open invoice'),
+                    ),
+            ),
           if (order.status == OrderStatus.voided)
             Material(
               key: const Key('order-voided'),
@@ -203,7 +258,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(order == null ? 'Order' : 'Table ${order.tableLabel} · #${order.id}'),
+        title: Text(order == null ? 'Order' : '${order.title} · #${order.id}'),
         actions: [
           if (widget.isAdmin && order != null && order.status == OrderStatus.sent)
             TextButton.icon(

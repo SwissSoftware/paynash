@@ -30,7 +30,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -55,7 +54,20 @@ public class OrderController {
 	 * error or the reason it waits; null without tickets.
 	 */
 	public record OrderSummaryView(long id, String tableLabel, OrderStatus status, String waiter, Instant sentAt,
-			String total, String printStatus, String printError) {
+			String total, String printStatus, String printError, Integer customerNumber, String customerName,
+			InvoiceRefView invoice) {
+	}
+
+	/**
+	 * The invoice of a salon order: the one that is not cancelled, else the latest cancelled one; null while the
+	 * order is not invoiced. {@code status} is open, paid, or cancelled.
+	 */
+	public record InvoiceRefView(long id, String number, String status) {
+
+		static InvoiceRefView of(OrderRepository.InvoiceRef ref) {
+			return ref == null ? null : new InvoiceRefView(ref.id(), ref.number(), ref.status());
+		}
+
 	}
 
 	/** {@code cancelledBy} and {@code cancelledAtStation} name who cancelled the line and where, if it is cancelled. */
@@ -66,7 +78,8 @@ public class OrderController {
 
 	public record OrderView(long id, String tableLabel, OrderStatus status, String waiter, Instant sentAt,
 			int version, String total, List<LineView> lines, String voidReason, String voidedBy,
-			String voidedAtStation, List<TicketView> tickets) {
+			String voidedAtStation, List<TicketView> tickets, Long customerId, Integer customerNumber,
+			String customerName, InvoiceRefView invoice) {
 
 		public static OrderView of(OrderService.OrderDetail d) {
 			Order o = d.order();
@@ -78,7 +91,8 @@ public class OrderController {
 				.toList();
 			return new OrderView(o.id(), o.tableLabel(), o.status(), o.sentByName(), o.sentAt(), o.version(),
 					Money.format(d.totalRappen()), lines, o.voidReason(), o.voidedByName(), o.voidedAtStationName(),
-					d.tickets().stream().map(TicketView::of).toList());
+					d.tickets().stream().map(TicketView::of).toList(), o.customerId(), o.customerNumber(),
+					o.customerName(), InvoiceRefView.of(d.invoice()));
 		}
 
 	}
@@ -89,7 +103,8 @@ public class OrderController {
 			@Size(max = 140, message = "Note must be at most 140 characters") String note) {
 	}
 
-	public record SendRequest(@NotBlank(message = "Table is required") String tableLabel,
+	/** Event mode needs {@code tableLabel}, salon mode needs {@code customerId} (add-salon-mode design D3). */
+	public record SendRequest(String tableLabel, Long customerId,
 			@NotEmpty(message = "The order has no lines") List<@Valid @NotNull LineRequest> lines) {
 	}
 
@@ -101,7 +116,8 @@ public class OrderController {
 		var views = service.history(date)
 			.stream()
 			.map(o -> new OrderSummaryView(o.id(), o.tableLabel(), o.status(), o.waiterName(), o.sentAt(),
-					Money.format(o.totalRappen()), o.printStatus(), o.printError()))
+					Money.format(o.totalRappen()), o.printStatus(), o.printError(), o.customerNumber(),
+					o.customerName(), InvoiceRefView.of(o.invoice())))
 			.toList();
 		return ResponseEntity.ok().cacheControl(CacheControl.noCache()).body(views);
 	}
@@ -109,16 +125,18 @@ public class OrderController {
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
 	@Operation(summary = "Send an order",
-			description = "Saves the order as sent and creates the print jobs in the same transaction. The table "
-					+ "label is 1 to 10 letters or digits and stored upper-case. Name, type, category, and price "
-					+ "are copied from the menu items. 409 with inactiveMenuItemIds if items were deactivated; "
-					+ "nothing is saved then.")
+			description = "Saves the order as sent and creates the print jobs in the same transaction. In event mode "
+					+ "the table label is 1 to 10 letters or digits and stored upper-case. In salon mode the order "
+					+ "is confirmed for customerId instead, contains only services, and prints no tickets. Name, "
+					+ "type, category, price, and VAT rate are copied from the menu items. 409 with "
+					+ "inactiveMenuItemIds or inactiveCustomerId if items or the customer were deactivated; nothing "
+					+ "is saved then.")
 	public OrderView send(@Valid @RequestBody SendRequest r, @AuthenticationPrincipal AuthenticatedStaff current) {
 		var lines = r.lines()
 			.stream()
 			.map(l -> new OrderService.NewLine(l.menuItemId(), l.qty(), l.note()))
 			.toList();
-		return OrderView.of(service.send(r.tableLabel(), lines, current));
+		return OrderView.of(service.send(r.tableLabel(), r.customerId(), lines, current));
 	}
 
 	@GetMapping("/{id}")

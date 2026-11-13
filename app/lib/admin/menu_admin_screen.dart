@@ -4,14 +4,28 @@ import 'package:flutter/services.dart';
 import '../api/api_client.dart';
 import '../menu/item_visuals.dart';
 import '../menu/menu_models.dart';
+import '../settings/settings_models.dart';
 import 'menu_admin_api.dart';
 
 /// Admin: categories on the left, the selected category's items on the right.
+/// In salon mode the items are services with a duration (spec menu-catalog).
 class MenuAdminScreen extends StatefulWidget {
-  const MenuAdminScreen({super.key, required this.api, this.pickImage = pickImageFromDevice});
+  const MenuAdminScreen({
+    super.key,
+    required this.api,
+    this.pickImage = pickImageFromDevice,
+    this.mode = VenueMode.event,
+    this.vatEnabled = false,
+  });
 
   final MenuAdminApi api;
   final ImagePicker pickImage;
+
+  /// Salon mode offers only services, event mode only food and drinks.
+  final VenueMode mode;
+
+  /// The VAT rate is shown and editable only while VAT is turned on.
+  final bool vatEnabled;
 
   @override
   State<MenuAdminScreen> createState() => _MenuAdminScreenState();
@@ -81,6 +95,8 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
         categoryId: item?.categoryId ?? _selectedId!,
         item: item,
         pickImage: widget.pickImage,
+        mode: widget.mode,
+        vatEnabled: widget.vatEnabled,
       ),
     );
     if (saved == true) await _load();
@@ -153,7 +169,7 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
                     key: const Key('item-add'),
                     onPressed: () => _editItem(),
                     icon: const Icon(Icons.add),
-                    label: const Text('Add item'),
+                    label: Text('Add ${Terms(widget.mode).item.toLowerCase()}'),
                   ),
                   body: items.isEmpty
                       ? const Center(child: Text('No items in this category yet.'))
@@ -263,6 +279,8 @@ class ItemDialog extends StatefulWidget {
     required this.categoryId,
     required this.pickImage,
     this.item,
+    this.mode = VenueMode.event,
+    this.vatEnabled = false,
   });
 
   final MenuAdminApi api;
@@ -270,6 +288,8 @@ class ItemDialog extends StatefulWidget {
   final int categoryId;
   final AdminItem? item;
   final ImagePicker pickImage;
+  final VenueMode mode;
+  final bool vatEnabled;
 
   @override
   State<ItemDialog> createState() => _ItemDialogState();
@@ -280,8 +300,13 @@ class _ItemDialogState extends State<ItemDialog> {
   late final _price = TextEditingController(text: widget.item?.price);
   late final _description = TextEditingController(text: widget.item?.description);
   late int _categoryId = widget.categoryId;
-  late ItemType? _type = widget.item?.type;
+  bool get _salon => widget.mode == VenueMode.salon;
+
+  /// A salon only sells services, so the type is fixed there.
+  late ItemType? _type = widget.item?.type ?? (_salon ? ItemType.service : null);
   late bool _active = widget.item?.active ?? true;
+  late final _duration = TextEditingController(text: widget.item?.durationMin?.toString());
+  late String _vatRate = widget.item?.vatRate ?? '8.1';
 
   /// The saved item, set after the first successful save so a failed image
   /// upload can be retried without creating the item twice.
@@ -292,6 +317,15 @@ class _ItemDialogState extends State<ItemDialog> {
   Map<String, String> _fieldErrors = {};
   String? _error;
   bool _busy = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _price.dispose();
+    _description.dispose();
+    _duration.dispose();
+    super.dispose();
+  }
 
   Future<void> _chooseImage() async {
     final picked = await widget.pickImage();
@@ -317,6 +351,8 @@ class _ItemDialogState extends State<ItemDialog> {
       price: _price.text.trim(),
       description: _description.text.trim(),
       active: _active,
+      durationMin: _type == ItemType.service ? int.tryParse(_duration.text.trim()) : null,
+      vatRate: widget.vatEnabled ? _vatRate : null,
     );
     try {
       _saved = _saved == null
@@ -403,7 +439,11 @@ class _ItemDialogState extends State<ItemDialog> {
   Widget build(BuildContext context) {
     final error = Theme.of(context).colorScheme.error;
     return AlertDialog(
-      title: Text(widget.item == null ? 'Add item' : 'Edit ${widget.item!.name}'),
+      title: Text(
+        widget.item == null
+            ? 'Add ${Terms(widget.mode).item.toLowerCase()}'
+            : 'Edit ${widget.item!.name}',
+      ),
       content: SizedBox(
         width: 420,
         child: SingleChildScrollView(
@@ -420,19 +460,21 @@ class _ItemDialogState extends State<ItemDialog> {
                 decoration:
                     InputDecoration(labelText: 'Name', errorText: _fieldErrors['name']),
               ),
-              Text('Type', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              SegmentedButton<ItemType>(
-                key: const Key('item-type'),
-                emptySelectionAllowed: true,
-                segments: [
-                  for (final t in ItemType.values)
-                    ButtonSegment(value: t, label: Text(t.label), icon: Icon(t.icon)),
-                ],
-                selected: {?_type},
-                onSelectionChanged: (s) =>
-                    setState(() => _type = s.isEmpty ? _type : s.first),
-              ),
+              if (!_salon) ...[
+                Text('Type', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                SegmentedButton<ItemType>(
+                  key: const Key('item-type'),
+                  emptySelectionAllowed: true,
+                  segments: [
+                    for (final t in [ItemType.food, ItemType.drink])
+                      ButtonSegment(value: t, label: Text(t.label), icon: Icon(t.icon)),
+                  ],
+                  selected: {?_type},
+                  onSelectionChanged: (s) =>
+                      setState(() => _type = s.isEmpty ? _type : s.first),
+                ),
+              ],
               if (_fieldErrors['type'] != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -448,6 +490,28 @@ class _ItemDialogState extends State<ItemDialog> {
                 decoration: InputDecoration(
                     labelText: 'Price', prefixText: 'CHF ', errorText: _fieldErrors['price']),
               ),
+              if (_type == ItemType.service)
+                TextField(
+                  key: const Key('item-duration'),
+                  controller: _duration,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                      labelText: 'Duration (optional)',
+                      suffixText: 'min',
+                      errorText: _fieldErrors['durationMin']),
+                ),
+              if (widget.vatEnabled)
+                DropdownButtonFormField<String>(
+                  key: const Key('item-vat-rate'),
+                  initialValue: vatRates.contains(_vatRate) ? _vatRate : '8.1',
+                  decoration:
+                      InputDecoration(labelText: 'VAT rate', errorText: _fieldErrors['vatRate']),
+                  items: [
+                    for (final r in vatRates) DropdownMenuItem(value: r, child: Text('$r %')),
+                  ],
+                  onChanged: (v) => setState(() => _vatRate = v ?? _vatRate),
+                ),
               DropdownButtonFormField<int>(
                 key: const Key('item-category'),
                 initialValue: _categoryId,
@@ -471,7 +535,9 @@ class _ItemDialogState extends State<ItemDialog> {
                 key: const Key('item-active'),
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Active'),
-                subtitle: const Text('Inactive items are not offered to waiters'),
+                subtitle: Text(_salon
+                    ? 'Inactive services are not offered to staff'
+                    : 'Inactive items are not offered to waiters'),
                 value: _active,
                 onChanged: (v) => setState(() => _active = v),
               ),

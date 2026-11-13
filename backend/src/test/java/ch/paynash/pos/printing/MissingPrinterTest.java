@@ -38,7 +38,7 @@ class MissingPrinterTest extends PrintingTestSupport {
 	@Test
 	void inactivePrinterDoesNotCount() throws Exception {
 		String waiter = waiterToken();
-		printerRepository.insert("Kitchen", OFFLINE, "local_printer", ItemType.FOOD, false);
+		printerRepository.insert("Kitchen", OFFLINE, "local_printer", PrintPurpose.FOOD, false);
 		long pizza = item("Pizzas", "Margherita", ItemType.FOOD);
 
 		long id = sendOrder(waiter, "12", line(pizza, 1));

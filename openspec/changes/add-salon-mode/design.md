@@ -25,7 +25,7 @@ See proposal.md for motivation and specs/ for the requirements. This design buil
 ## Decisions
 
 ### D1: Settings as one row
-A table `installation_settings` with exactly one row (`id = 1`, checked in the database) holds `mode`, the business details, `vat_enabled`, and `vat_uid`. `GET /settings` is readable by every logged-in user. The app loads it after login and on each app resume, and builds its navigation from `mode`. `PUT /settings` is admin-only.
+A table `installation_settings` with exactly one row (`id = 1`, checked in the database) holds `mode`, the business details, `vat_enabled`, and `vat_uid`. `GET /settings` is readable by every logged-in user. The app loads it after login and on each app resume, and builds its navigation from `mode`. `PUT /admin/settings` (details and VAT) and `PUT /admin/settings/mode` are admin-only.
 - Changing the mode runs in one transaction with `SELECT ... FOR UPDATE` on the settings row and a check that `orders` is empty. This makes the "mode change only without orders" rule safe against an order arriving at the same moment.
 - *Alternative*: the mode as an environment variable of the deployment. This was rejected because the admin should set up a salon from the app, and because the check against existing orders needs the database anyway.
 
@@ -64,10 +64,11 @@ Issuing uses the `Idempotency-Key` mechanism (D5 of `add-pos-ordering-system`). 
 
 ### D7: Payments as rows
 Table `invoice_payment`: `invoice_id`, `method`, `paid_on`, `recorded_by`, `recorded_at`, and `removed_at`, `removed_by`, `remove_reason`. A partial unique index on `invoice_id WHERE removed_at IS NULL` allows at most one active payment. The invoice is `paid` exactly when an active payment exists. "Undo payment" sets the removal fields and never deletes, so the history stays.
+- Endpoints: `POST /invoices/{id}/payment` (staff) and `POST /admin/invoices/{id}/payment/undo` with a reason (admin).
 - *Alternative*: payment columns on `invoice`. This was rejected because undo would overwrite the record of the payment that was removed.
 
 ### D8: Receipts through the print outbox
-- `printer.item_type` is renamed to `purpose`, and its check allows `food`, `drink`, and `receipt`. The existing partial unique index on active printers per purpose already ensures one active receipt printer.
+- `printer.item_type` is renamed to `purpose`, and its check allows `food`, `drink`, and `receipt`. In code, a `PrintPurpose` enum (food, drink, receipt) replaces the menu `ItemType` for printers and print jobs. The existing partial unique index on active printers per purpose already ensures one active receipt printer.
 - `print_job` gets `invoice_id` (nullable). `order_id` becomes nullable. A check requires one of them. `print_job.item_type` allows `receipt`, and `kind` allows `copy`.
 - Issuing an invoice inserts a receipt job in the same transaction, so a crash cannot lose it. The content is rendered when the job is created, as for tickets, so a copy prints exactly the same text with the "KOPIE" marker added.
 - A new `ReceiptRenderer` creates ePOS-Print XML for 48 columns (font A on 80 mm paper), with right-aligned amounts. "STORNIERT" receipts are rendered from the cancelled invoice.
@@ -85,7 +86,7 @@ A `ReportService` builds one `SalesReport` object for a period with SQL aggregat
 - services grouped by `name` from `invoice_line`, customers by `invoice.customer->>'number'` and the current customer record for the display name (anonymized customers show "Deleted customer")
 - paid and open amounts by whether an active payment exists, and revenue per method over the active payments
 
-`GET /reports/sales?from&to` returns the object as JSON. `GET /reports/sales.xlsx?from&to` writes **the same object** with Apache POI (`XSSFWorkbook`; the data is small, so streaming is not needed). Amounts are written as numeric cells with the format `#,##0.00`, and dates as date cells. The sheets "Rechnungen" and "Positionen" are read separately, including cancelled invoices with their status. Because both endpoints use the same object, the totals match by design.
+`GET /admin/reports/sales?from&to` returns the object as JSON. `GET /admin/reports/sales.xlsx?from&to` writes **the same object** with Apache POI (`XSSFWorkbook`; the data is small, so streaming is not needed). Amounts are written as numeric cells with the format `#,##0.00`, and dates as date cells. The sheets "Rechnungen" and "Positionen" are read separately, including cancelled invoices with their status. Because both endpoints use the same object, the totals match by design.
 
 ### D11: App structure
 - A `SettingsController` provides the mode, and `home` builds the navigation from it. Salon mode shows: Order (customer picker plus service tiles), Customers, Invoices, Report (admin only), and Admin (services, staff, printers, settings).

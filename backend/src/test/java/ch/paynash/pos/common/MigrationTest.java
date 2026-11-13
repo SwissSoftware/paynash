@@ -25,4 +25,10 @@ class MigrationTest {
 		assertThat(applied).contains("1");
 	}
 
+	@Test
+	void freshDatabaseHasOneSettingsRowInEventMode() {
+		assertThat(jdbc.sql("SELECT mode FROM installation_settings").query(String.class).list())
+			.containsExactly("event");
+	}
+
 }

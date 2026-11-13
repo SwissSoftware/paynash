@@ -15,16 +15,37 @@ import ch.paynash.pos.menu.ItemType;
 @Repository
 public class OrderRepository {
 
+	/** The customer's display name; "Deleted customer" once anonymized (spec customer-management). */
+	static final String CUSTOMER_NAME_SQL = """
+			CASE WHEN cu.id IS NULL THEN NULL
+			     WHEN cu.anonymized_at IS NOT NULL THEN 'Deleted customer'
+			     ELSE trim(coalesce(cu.first_name, '') || ' ' || coalesce(cu.last_name, '')) END""";
+
+	/**
+	 * The invoice an order shows (add-salon-mode, "Order history in salon mode"): the one that is not cancelled, or
+	 * else the latest cancelled one. {@code o} is the order alias.
+	 */
+	static final String SHOWN_INVOICE_SQL = """
+			SELECT i.id, i.number,
+			       CASE WHEN i.status = 'cancelled' THEN 'cancelled'
+			            WHEN EXISTS (SELECT 1 FROM invoice_payment p WHERE p.invoice_id = i.id AND p.removed_at IS NULL)
+			                 THEN 'paid'
+			            ELSE 'open' END AS status
+			FROM invoice i WHERE i.order_id = o.id
+			ORDER BY (i.status = 'issued') DESC, i.year DESC, i.seq DESC LIMIT 1""";
+
 	private static final String ORDER_SELECT = """
 			SELECT o.id, o.table_label, o.status, o.sent_by, s.display_name AS sent_by_name, o.sent_at, o.version,
-			       o.void_reason, v.display_name AS voided_by_name, vs.display_name AS voided_at_station_name
+			       o.void_reason, v.display_name AS voided_by_name, vs.display_name AS voided_at_station_name,
+			       o.customer_id, cu.number AS customer_number, %s AS customer_name
 			FROM orders o JOIN staff s ON s.id = o.sent_by
 			LEFT JOIN staff v ON v.id = o.voided_by
-			LEFT JOIN staff vs ON vs.id = o.voided_at_station""";
+			LEFT JOIN staff vs ON vs.id = o.voided_at_station
+			LEFT JOIN customer cu ON cu.id = o.customer_id""".formatted(CUSTOMER_NAME_SQL);
 
 	private static final String LINE_SELECT = """
 			SELECT l.id, l.order_id, l.menu_item_id, l.name_snapshot, l.type_snapshot, l.category_snapshot,
-			       l.unit_price_snapshot, l.qty, l.note, l.status, l.cancel_reason,
+			       l.unit_price_snapshot, l.vat_rate_snapshot, l.qty, l.note, l.status, l.cancel_reason,
 			       c.display_name AS cancelled_by_name, cs.display_name AS cancelled_at_station_name
 			FROM order_line l
 			LEFT JOIN staff c ON c.id = l.cancelled_by
@@ -43,16 +64,30 @@ public class OrderRepository {
 	 * the error of the first failed or unclear ticket, or the reason the first waiting ticket waits.
 	 */
 	public record OrderSummary(long id, String tableLabel, OrderStatus status, String waiterName, Instant sentAt,
-			long totalRappen, String printStatus, String printError) {
+			long totalRappen, String printStatus, String printError, Integer customerNumber, String customerName,
+			InvoiceRef invoice) {
+	}
+
+	/** The invoice shown for an order; {@code status} is open, paid, or cancelled. */
+	public record InvoiceRef(long id, String number, String status) {
 	}
 
 	// --- orders
 
-	public long insertSent(String tableLabel, long staffId, Instant now) {
-		return jdbc.sql("INSERT INTO orders (table_label, sent_by, sent_at) VALUES (?, ?, ?) RETURNING id")
-			.params(tableLabel, staffId, Timestamp.from(now))
+	/** Exactly one of {@code tableLabel} and {@code customerId} is set. */
+	public long insertSent(String tableLabel, Long customerId, long staffId, Instant now) {
+		return jdbc.sql("INSERT INTO orders (table_label, customer_id, sent_by, sent_at) VALUES (?, ?, ?, ?) RETURNING id")
+			.params(tableLabel, customerId, staffId, Timestamp.from(now))
 			.query(Long.class)
 			.single();
+	}
+
+	public Optional<InvoiceRef> shownInvoice(long orderId) {
+		return jdbc.sql("SELECT x.id, x.number, x.status FROM orders o, LATERAL (" + SHOWN_INVOICE_SQL
+				+ ") x WHERE o.id = ?")
+			.param(orderId)
+			.query((rs, n) -> new InvoiceRef(rs.getLong("id"), rs.getString("number"), rs.getString("status")))
+			.optional();
 	}
 
 	public Optional<Order> find(long id) {
@@ -73,7 +108,9 @@ public class OrderRepository {
 				               AS severity
 				    FROM print_job j
 				    WHERE NOT EXISTS (SELECT 1 FROM print_job r WHERE r.reprint_of = j.id))
-				SELECT o.id, o.table_label, o.status, s.display_name, o.sent_at,
+				SELECT o.id, o.table_label, o.status, s.display_name, o.sent_at, cu.number AS customer_number,
+				       %1$s AS customer_name, inv.id AS invoice_id, inv.number AS invoice_number,
+				       inv.status AS invoice_status,
 				       coalesce(sum(l.qty * l.unit_price_snapshot) FILTER (WHERE l.status <> 'cancelled'), 0) AS total,
 				       (SELECT CASE min(c.severity) WHEN 1 THEN 'failed' WHEN 2 THEN 'unclear' WHEN 3 THEN 'pending'
 				                    WHEN 4 THEN 'printed' END
@@ -83,15 +120,21 @@ public class OrderRepository {
 				        ORDER BY c.severity, c.id LIMIT 1) AS print_error
 				FROM orders o
 				JOIN staff s ON s.id = o.sent_by
+				LEFT JOIN customer cu ON cu.id = o.customer_id
+				LEFT JOIN LATERAL (%2$s) inv ON true
 				LEFT JOIN order_line l ON l.order_id = o.id
 				WHERE o.sent_at >= ? AND o.sent_at < ?
-				GROUP BY o.id, s.display_name
-				ORDER BY o.sent_at DESC, o.id DESC""")
+				GROUP BY o.id, s.display_name, cu.id, inv.id, inv.number, inv.status
+				ORDER BY o.sent_at DESC, o.id DESC""".formatted(CUSTOMER_NAME_SQL, SHOWN_INVOICE_SQL))
 			.params(Timestamp.from(from), Timestamp.from(to))
 			.query((rs, row) -> new OrderSummary(rs.getLong("id"), rs.getString("table_label"),
 					OrderStatus.fromDb(rs.getString("status")), rs.getString("display_name"),
 					rs.getTimestamp("sent_at").toInstant(), rs.getLong("total"), rs.getString("print_status"),
-					rs.getString("print_error")))
+					rs.getString("print_error"), rs.getObject("customer_number", Integer.class),
+					rs.getString("customer_name"),
+					rs.getObject("invoice_id") == null ? null
+							: new InvoiceRef(rs.getLong("invoice_id"), rs.getString("invoice_number"),
+									rs.getString("invoice_status"))))
 			.list();
 	}
 
@@ -126,12 +169,12 @@ public class OrderRepository {
 	}
 
 	public void insertLine(long orderId, long menuItemId, String name, ItemType type, String category,
-			int unitPriceRappen, int qty, String note) {
+			int unitPriceRappen, int vatRatePermille, int qty, String note) {
 		jdbc.sql("""
 				INSERT INTO order_line (order_id, menu_item_id, name_snapshot, type_snapshot, category_snapshot,
-				                        unit_price_snapshot, qty, note)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)""")
-			.params(orderId, menuItemId, name, type.dbValue(), category, unitPriceRappen, qty, note)
+				                        unit_price_snapshot, vat_rate_snapshot, qty, note)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""")
+			.params(orderId, menuItemId, name, type.dbValue(), category, unitPriceRappen, vatRatePermille, qty, note)
 			.update();
 	}
 
@@ -159,7 +202,8 @@ public class OrderRepository {
 		return new Order(rs.getLong("id"), rs.getString("table_label"), OrderStatus.fromDb(rs.getString("status")),
 				rs.getLong("sent_by"), rs.getString("sent_by_name"), rs.getTimestamp("sent_at").toInstant(),
 				rs.getInt("version"), rs.getString("void_reason"), rs.getString("voided_by_name"),
-				rs.getString("voided_at_station_name"));
+				rs.getString("voided_at_station_name"), rs.getObject("customer_id", Long.class),
+				rs.getObject("customer_number", Integer.class), rs.getString("customer_name"));
 	}
 
 	private OrderLine mapLine(ResultSet rs, int row) throws SQLException {
@@ -167,7 +211,8 @@ public class OrderRepository {
 				rs.getString("name_snapshot"), ItemType.fromDb(rs.getString("type_snapshot")),
 				rs.getString("category_snapshot"), rs.getInt("unit_price_snapshot"), rs.getInt("qty"),
 				rs.getString("note"), LineStatus.fromDb(rs.getString("status")), rs.getString("cancel_reason"),
-				rs.getString("cancelled_by_name"), rs.getString("cancelled_at_station_name"));
+				rs.getString("cancelled_by_name"), rs.getString("cancelled_at_station_name"),
+				rs.getInt("vat_rate_snapshot"));
 	}
 
 }

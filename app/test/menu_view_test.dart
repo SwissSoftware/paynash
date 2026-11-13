@@ -4,6 +4,7 @@ import 'package:paynash_pos/api/api_client.dart';
 import 'package:paynash_pos/auth/token_store.dart';
 import 'package:paynash_pos/menu/item_visuals.dart';
 import 'package:paynash_pos/menu/menu_api.dart';
+import 'package:paynash_pos/menu/menu_models.dart';
 
 import 'support/app_harness.dart';
 import 'support/fake_backend.dart';
@@ -112,5 +113,40 @@ void main() {
     backend.addItem(backend.categories.first['id'] as int, 'Beer', 'drink', '6.00');
     final third = await api.load();
     expect(third.first.items.map((i) => i.name), ['Cola', 'Beer']);
+  });
+
+  testWidgets('a service tile shows its duration and a service placeholder', (
+    tester,
+  ) async {
+    late int facial;
+    final app = AppHarness(tester);
+    app.backend.addStaff('anna', 'waiter', '4711', displayName: 'Anna');
+    app.backend.salon.useSalon();
+    facial = app.backend.addItem(
+      app.backend.addCategory('Face'),
+      'Facial',
+      'service',
+      '120.00',
+      durationMin: 60,
+    );
+    await app.start();
+    await app.login('anna', '4711');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Services'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('CHF 120.00 · 60 min'), findsOneWidget);
+    final placeholder = find.byKey(Key('placeholder-$facial'));
+    expect(
+      find.descendant(
+        of: placeholder,
+        matching: find.byIcon(ItemType.service.icon),
+      ),
+      findsOneWidget,
+    );
   });
 }

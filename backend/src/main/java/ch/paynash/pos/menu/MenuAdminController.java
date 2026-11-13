@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import ch.paynash.pos.common.Money;
+import ch.paynash.pos.common.VatRates;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -50,24 +51,26 @@ public class MenuAdminController {
 	public record OrderRequest(@NotNull List<Long> ids) {
 	}
 
+	/** {@code vatRate} is a percentage such as "8.1"; {@code durationMin} is only set for services. */
 	public record ItemView(long id, long categoryId, String name, ItemType type, String price, String description,
-			int displayOrder, boolean active, String imageUrl) {
+			int displayOrder, boolean active, String imageUrl, Integer durationMin, String vatRate) {
 
 		static ItemView of(MenuItem i) {
 			return new ItemView(i.id(), i.categoryId(), i.name(), i.type(), Money.format(i.priceRappen()),
-					i.description(), i.displayOrder(), i.active(), imageUrlFor(i.imageRef()));
+					i.description(), i.displayOrder(), i.active(), imageUrlFor(i.imageRef()), i.durationMin(),
+					VatRates.format(i.vatRatePermille()));
 		}
 
 	}
 
 	public record ItemRequest(@NotNull Long categoryId, @NotBlank @Size(max = 80) String name,
-			@NotNull(message = "Type is required (food or drink)") ItemType type,
+			@NotNull(message = "Type is required (food, drink, or service)") ItemType type,
 			@NotNull(message = "Price is required") String price, @Size(max = 200) String description,
-			Boolean active) {
+			Boolean active, Integer durationMin, String vatRate) {
 
 		MenuAdminService.ItemInput toInput() {
 			return new MenuAdminService.ItemInput(categoryId, name, type, price, description,
-					active == null || active);
+					active == null || active, durationMin, vatRate);
 		}
 
 	}
@@ -128,7 +131,9 @@ public class MenuAdminController {
 
 	@PostMapping("/items")
 	@ResponseStatus(HttpStatus.CREATED)
-	@Operation(summary = "Create an item", description = "price is CHF as a string, e.g. \"4.50\".")
+	@Operation(summary = "Create an item",
+			description = "price is CHF as a string, e.g. \"4.50\". vatRate is one of \"8.1\" (default), \"2.6\", "
+					+ "\"3.8\", \"0\". Salon mode accepts only type service, event mode only food and drink.")
 	public ItemView createItem(@Valid @RequestBody ItemRequest r) {
 		return ItemView.of(service.createItem(r.toInput()));
 	}
