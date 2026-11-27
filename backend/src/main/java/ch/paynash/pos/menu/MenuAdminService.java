@@ -4,6 +4,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -119,6 +120,32 @@ public class MenuAdminService {
 			menu.setItemOrder(ids.get(i), i);
 		}
 		return menu.findItemsInCategory(categoryId);
+	}
+
+	/**
+	 * Deletes an item that was never ordered (spec menu-catalog, "Delete unused items, deactivate ordered ones"). The
+	 * RESTRICT foreign key from order_line catches a line inserted after the check (change delete-unsold-menu-items,
+	 * design D2).
+	 */
+	@Transactional
+	public void deleteItem(long id) {
+		MenuItem current = item(id);
+		if (menu.hasOrderLines(id)) {
+			throw alreadyOrdered(current);
+		}
+		try {
+			menu.deleteItem(id);
+		}
+		catch (DataIntegrityViolationException ex) {
+			throw alreadyOrdered(current);
+		}
+		deleteAfterCommitIfUnused(current.imageRef(), null);
+	}
+
+	private static ApiException alreadyOrdered(MenuItem item) {
+		return ApiException
+			.conflict(item.name() + " was already ordered and cannot be deleted. Deactivate it instead.")
+			.with("alreadyOrdered", true);
 	}
 
 	/**

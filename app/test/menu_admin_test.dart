@@ -151,6 +151,81 @@ void main() {
     expect(backend.categories, hasLength(1));
   });
 
+  Future<void> deleteViaMenu(WidgetTester tester, int id) async {
+    await tester.tap(find.byKey(Key('item-menu-$id')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('admin deletes an item that was never ordered', (tester) async {
+    late int id;
+    final backend = await pumpAdmin(tester, (b) {
+      final cat = b.addCategory('Hot drinks');
+      id = b.addItem(cat, 'Espreso', 'drink', '4.50');
+      b.addItem(cat, 'Tea', 'drink', '4.00');
+    });
+
+    await deleteViaMenu(tester, id);
+    expect(find.text('Delete Espreso?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('item-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(backend.items.map((i) => i['name']), ['Tea']);
+    expect(find.text('Espreso'), findsNothing);
+  });
+
+  testWidgets('cancelling the confirmation keeps the item', (tester) async {
+    late int id;
+    final backend = await pumpAdmin(tester, (b) {
+      id = b.addItem(b.addCategory('Hot drinks'), 'Espresso', 'drink', '4.50');
+    });
+
+    await deleteViaMenu(tester, id);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(backend.items, hasLength(1));
+    expect(find.text('Espresso'), findsOneWidget);
+  });
+
+  testWidgets('an ordered item cannot be deleted and can be deactivated instead', (tester) async {
+    late int id;
+    final backend = await pumpAdmin(tester, (b) {
+      id = b.addItem(b.addCategory('Pizzas'), 'Margherita', 'food', '18.00');
+      b.addSentOrder('12', b.staff.first, [(id, 1)]);
+    });
+
+    await deleteViaMenu(tester, id);
+    await tester.tap(find.byKey(const Key('item-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Margherita was already ordered and cannot be deleted. Deactivate it instead.'),
+        findsOneWidget);
+    await tester.tap(find.byKey(const Key('item-deactivate-instead')));
+    await tester.pumpAndSettle();
+
+    expect(backend.items.single['active'], false);
+    expect(find.text('CHF 18.00 · inactive'), findsOneWidget);
+  });
+
+  testWidgets('an inactive ordered item only offers OK', (tester) async {
+    late int id;
+    final backend = await pumpAdmin(tester, (b) {
+      id = b.addItem(b.addCategory('Pizzas'), 'Funghi', 'food', '20.00', active: false);
+      b.addSentOrder('12', b.staff.first, [(id, 1)]);
+    });
+
+    await deleteViaMenu(tester, id);
+    await tester.tap(find.byKey(const Key('item-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('item-deactivate-instead')), findsNothing);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(backend.items, hasLength(1));
+  });
+
   group('salon services', () {
     testWidgets('admin creates a service with a duration; the type starts as service', (
       tester,

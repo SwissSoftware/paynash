@@ -105,6 +105,80 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
     if (saved == true) await _load();
   }
 
+  /// Only items that were never ordered can be deleted; the others can be deactivated
+  /// (spec menu-catalog, "Delete unused items, deactivate ordered ones").
+  Future<void> _deleteItem(AdminItem item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${item.name}?'),
+        content: Text(
+          'The ${widget.terms.item.toLowerCase()} is removed for good. '
+          'This is only possible if it was never ordered.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(
+            key: const Key('item-delete-confirm'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.api.deleteItem(item.id);
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      if (e.details['alreadyOrdered'] == true) {
+        await _offerDeactivation(item, e.message);
+      } else {
+        _showError(e);
+      }
+    }
+    await _load();
+  }
+
+  Future<void> _offerDeactivation(AdminItem item, String message) async {
+    final deactivate = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Cannot delete ${item.name}'),
+        content: Text(message),
+        actions: item.active
+            ? [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                FilledButton(
+                  key: const Key('item-deactivate-instead'),
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Deactivate instead'),
+                ),
+              ]
+            : [
+                FilledButton(onPressed: () => Navigator.pop(context, false), child: const Text('OK')),
+              ],
+      ),
+    );
+    if (deactivate != true) return;
+    try {
+      await widget.api.updateItem(
+        item.id,
+        ItemInput(
+          categoryId: item.categoryId,
+          name: item.name,
+          type: item.type,
+          price: item.price,
+          description: item.description ?? '',
+          active: false,
+          durationMin: item.durationMin,
+        ),
+      );
+    } on ApiError catch (e) {
+      if (mounted) _showError(e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_error != null) return Center(child: Text(_error!));
@@ -211,7 +285,19 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
                                 subtitle: Text(
                                   'CHF ${item.price}${item.active ? '' : ' · inactive'}',
                                 ),
-                                trailing: ItemTypeBadge(item.type),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ItemTypeBadge(item.type),
+                                    PopupMenuButton<String>(
+                                      key: Key('item-menu-${item.id}'),
+                                      onSelected: (_) => _deleteItem(item),
+                                      itemBuilder: (_) => const [
+                                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                                 onTap: () => _editItem(item),
                               ),
                           ],

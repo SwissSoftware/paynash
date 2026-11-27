@@ -140,6 +140,9 @@ class MenuAdminApi {
   Future<AdminItem> updateItem(int id, ItemInput input) async => AdminItem.fromJson(
       await api.put('/admin/items/$id', input.toJson()) as Map<String, dynamic>);
 
+  /// 409 with `alreadyOrdered` if the item was ordered; it can only be deactivated then.
+  Future<void> deleteItem(int id) => api.delete('/admin/items/$id');
+
   Future<void> reorderItems(int categoryId, List<int> ids) =>
       api.put('/admin/categories/$categoryId/items/order', {'ids': ids});
 

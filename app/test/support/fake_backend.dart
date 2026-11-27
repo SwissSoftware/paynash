@@ -167,6 +167,18 @@ class FakeBackend {
         }
         return _json(200, i);
       }
+      if (r.method == 'DELETE') {
+        final ordered = orders.any((o) => (o['lines'] as List).any((l) => l['menuItemId'] == i['id']));
+        if (ordered) {
+          return _json(409, {
+            'status': 409,
+            'detail': '${i['name']} was already ordered and cannot be deleted. Deactivate it instead.',
+            'alreadyOrdered': true,
+          });
+        }
+        items.remove(i);
+        return http.Response('', 204);
+      }
       final errors = _validateItem(body!);
       if (errors.isNotEmpty) return _problem(400, 'Validation failed', errors);
       i
@@ -427,14 +439,23 @@ class FakeBackend {
         }
       }
       final lines = (body['lines'] as List).cast<Map<String, dynamic>>();
-      final inactive = [for (final l in lines) items.firstWhere((i) => i['id'] == l['menuItemId'])]
-          .where((i) => i['active'] != true)
-          .toSet();
-      if (inactive.isNotEmpty) {
+      final deleted = {
+        for (final l in lines)
+          if (!items.any((i) => i['id'] == l['menuItemId'])) l['menuItemId'] as int,
+      };
+      final inactive = [
+        for (final l in lines)
+          if (!deleted.contains(l['menuItemId'])) items.firstWhere((i) => i['id'] == l['menuItemId']),
+      ].where((i) => i['active'] != true).toSet();
+      if (inactive.isNotEmpty || deleted.isNotEmpty) {
+        final names = [
+          ...inactive.map((i) => i['name'] as String),
+          if (deleted.isNotEmpty) inactive.isEmpty ? 'Deleted items' : 'deleted items',
+        ];
         return _json(409, {
           'status': 409,
-          'detail': '${inactive.map((i) => i['name']).join(', ')} no longer available',
-          'inactiveMenuItemIds': [for (final i in inactive) i['id']],
+          'detail': '${names.join(', ')} no longer available',
+          'inactiveMenuItemIds': [for (final i in inactive) i['id'], ...deleted],
         });
       }
       final order = addSentOrder(label, me, const []);

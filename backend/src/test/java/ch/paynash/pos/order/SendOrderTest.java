@@ -129,8 +129,24 @@ class SendOrderTest extends OrderTestSupport {
 	}
 
 	@Test
-	void unknownItemIsRejected() throws Exception {
-		send(anna, "12", line(999999, 1)).andExpect(status().isBadRequest());
+	void deletedItemRejectsTheWholeOrderLikeAnInactiveItem() throws Exception {
+		long tea = item(drinks, "Tea", ItemType.DRINK, 400);
+		menu.deleteItem(tea);
+
+		send(anna, "12", line(margherita, 1), line(tea, 1), line(tea, 2)).andExpect(status().isConflict())
+			.andExpect(jsonPath("$.detail").value("Deleted items no longer available"))
+			.andExpect(jsonPath("$.inactiveMenuItemIds", contains((int) tea)));
+		assertThat(orderCount()).isZero();
+		assertThat(printing.sent).isEmpty();
+	}
+
+	@Test
+	void inactiveAndDeletedItemsAreReportedTogether() throws Exception {
+		menu.updateItem(cola, drinks, "Cola", ItemType.DRINK, 450, null, false, null, 81);
+
+		send(anna, "12", line(cola, 1), line(999999, 1)).andExpect(status().isConflict())
+			.andExpect(jsonPath("$.detail").value("Cola, deleted items no longer available"))
+			.andExpect(jsonPath("$.inactiveMenuItemIds", contains((int) cola, 999999)));
 		assertThat(orderCount()).isZero();
 	}
 

@@ -140,18 +140,31 @@ public class OrderService {
 		}
 		Map<Long, MenuItem> items = new HashMap<>();
 		List<MenuItem> inactive = new ArrayList<>();
+		List<Long> deleted = new ArrayList<>();
 		for (NewLine line : lines) {
 			// Items of all types may be mixed in one order (spec order-taking, "Service lines").
-			MenuItem item = items.computeIfAbsent(line.menuItemId(), id -> menu.findItem(id)
-				.orElseThrow(() -> ApiException.validation("lines", "Menu item " + id + " does not exist")));
-			if (!item.active() && !inactive.contains(item)) {
+			long id = line.menuItemId();
+			if (deleted.contains(id)) {
+				continue;
+			}
+			MenuItem item = items.computeIfAbsent(id, key -> menu.findItem(key).orElse(null));
+			if (item == null) {
+				// Deleted in the meantime: rejected like an inactive item (change delete-unsold-menu-items, design D3).
+				deleted.add(id);
+			}
+			else if (!item.active() && !inactive.contains(item)) {
 				inactive.add(item);
 			}
 		}
-		if (!inactive.isEmpty()) {
-			throw ApiException
-				.conflict(String.join(", ", inactive.stream().map(MenuItem::name).toList()) + " no longer available")
-				.with("inactiveMenuItemIds", inactive.stream().map(MenuItem::id).toList());
+		if (!inactive.isEmpty() || !deleted.isEmpty()) {
+			List<String> parts = new ArrayList<>(inactive.stream().map(MenuItem::name).toList());
+			if (!deleted.isEmpty()) {
+				parts.add(inactive.isEmpty() ? "Deleted items" : "deleted items");
+			}
+			List<Long> ids = new ArrayList<>(inactive.stream().map(MenuItem::id).toList());
+			ids.addAll(deleted);
+			throw ApiException.conflict(String.join(", ", parts) + " no longer available")
+				.with("inactiveMenuItemIds", ids);
 		}
 		long orderId = orders.insertSent(label, customer == null ? null : customer.id(), staff.id(), clock.instant());
 		for (NewLine line : lines) {
