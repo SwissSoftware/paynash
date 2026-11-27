@@ -17,7 +17,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import ch.paynash.pos.printing.PrintJob;
 import ch.paynash.pos.printing.PrintJobRepository;
-import ch.paynash.pos.printing.PrintPurpose;
 import ch.paynash.pos.printing.PrintWorker;
 import ch.paynash.pos.printing.PrinterRepository;
 import ch.paynash.pos.support.FakeEposPrinter;
@@ -44,10 +43,10 @@ class ReceiptPrintingTest extends InvoiceTestSupport {
 	@Test
 	void issuingPrintsTheReceiptOnce() throws Exception {
 		var counter = fake();
-		printers.insert("Counter", counter.address(), "local_printer", PrintPurpose.RECEIPT, true);
+		printers.insert("Counter", counter.address(), "local_printer", false, true, true);
 		long invoice = id(issue(staff, confirm(laura, line(facial, 1))).andExpect(status().isCreated())
 			.andExpect(jsonPath("$.receipt.status").value("pending"))
-			.andExpect(jsonPath("$.receipt.type").value("receipt")));
+			.andExpect(jsonPath("$.receipts[0].printer").value("Counter")));
 
 		runFor(Duration.ofMinutes(2));
 
@@ -61,7 +60,7 @@ class ReceiptPrintingTest extends InvoiceTestSupport {
 	@Test
 	void paperEndWaitsAndPrintsAfterRecovery() throws Exception {
 		var counter = fake();
-		printers.insert("Counter", counter.address(), "local_printer", PrintPurpose.RECEIPT, true);
+		printers.insert("Counter", counter.address(), "local_printer", false, true, true);
 		counter.paperEnd(true);
 		long invoice = issued(confirm(laura, line(facial, 1)));
 		runFor(Duration.ofMinutes(3));
@@ -78,7 +77,7 @@ class ReceiptPrintingTest extends InvoiceTestSupport {
 	@Test
 	void unclearReceiptIsNotSentAgainUntilACopyIsPrinted() throws Exception {
 		var counter = fake();
-		printers.insert("Counter", counter.address(), "local_printer", PrintPurpose.RECEIPT, true);
+		printers.insert("Counter", counter.address(), "local_printer", false, true, true);
 		counter.fault(FakeEposPrinter.Fault.DROP_AFTER_READ);
 		long invoice = issued(confirm(laura, line(facial, 1)));
 		runFor(Duration.ofMinutes(2));
@@ -89,7 +88,7 @@ class ReceiptPrintingTest extends InvoiceTestSupport {
 
 		counter.fault(FakeEposPrinter.Fault.NONE);
 		as(staff, post("/invoices/" + invoice + "/receipt")).andExpect(status().isCreated())
-			.andExpect(jsonPath("$.kind").value("copy"));
+			.andExpect(jsonPath("$[0].kind").value("copy"));
 		runFor(Duration.ofSeconds(20));
 
 		assertThat(counter.printedTickets()).last().satisfies(r -> assertThat(r).contains("KOPIE"));
@@ -102,7 +101,7 @@ class ReceiptPrintingTest extends InvoiceTestSupport {
 	@Test
 	void copyIsMarkedKopieAndCancelledCopyStorniert() throws Exception {
 		var counter = fake();
-		printers.insert("Counter", counter.address(), "local_printer", PrintPurpose.RECEIPT, true);
+		printers.insert("Counter", counter.address(), "local_printer", false, true, true);
 		long invoice = issued(confirm(laura, line(facial, 1)));
 		runFor(Duration.ofSeconds(10));
 		as(staff, post("/invoices/" + invoice + "/receipt")).andExpect(status().isCreated());
@@ -122,7 +121,7 @@ class ReceiptPrintingTest extends InvoiceTestSupport {
 	@Test
 	void copyIsRejectedWhileTheReceiptIsStillWaiting() throws Exception {
 		var counter = fake();
-		printers.insert("Counter", counter.address(), "local_printer", PrintPurpose.RECEIPT, true);
+		printers.insert("Counter", counter.address(), "local_printer", false, true, true);
 		counter.paperEnd(true);
 		long invoice = issued(confirm(laura, line(facial, 1)));
 		as(staff, post("/invoices/" + invoice + "/receipt")).andExpect(status().isConflict())
@@ -130,19 +129,63 @@ class ReceiptPrintingTest extends InvoiceTestSupport {
 	}
 
 	@Test
-	void noReceiptPrinterStillIssuesAndShowsTheError() throws Exception {
+	void noPrinterWithReceiptsOnIssuesWithoutAReceipt() throws Exception {
 		long invoice = id(issue(staff, confirm(laura, line(facial, 1))).andExpect(status().isCreated())
 			.andExpect(jsonPath("$.number").value("2026-0001"))
-			.andExpect(jsonPath("$.receipt.status").value("failed"))
-			.andExpect(jsonPath("$.receipt.error").value("no printer configured")));
+			.andExpect(jsonPath("$.receipt").doesNotExist())
+			.andExpect(jsonPath("$.receipts").isEmpty()));
+		assertThat(jobs.findByInvoice(invoice)).isEmpty();
 
 		var counter = fake();
-		printers.insert("Counter", counter.address(), "local_printer", PrintPurpose.RECEIPT, true);
+		printers.insert("Counter", counter.address(), "local_printer", false, true, true);
 		as(staff, post("/invoices/" + invoice + "/receipt")).andExpect(status().isCreated());
 		runFor(Duration.ofSeconds(10));
 		assertThat(counter.printedTickets()).singleElement().satisfies(r -> assertThat(r).contains("KOPIE"));
 		as(staff, get("/invoices/" + invoice)).andExpect(jsonPath("$.receipt.status").value("printed"));
 	}
+
+	@Test
+	void everyActivePrinterWithReceiptsOnPrintsTheReceiptAndTheCopy() throws Exception {
+		var counter = fake();
+		var office = fake();
+		printers.insert("Counter", counter.address(), "local_printer", false, true, true);
+		printers.insert("Office", office.address(), "local_printer", false, true, true);
+		printers.insert("Spare", OFFLINE, "local_printer", false, true, false);
+		long invoice = id(issue(staff, confirm(laura, line(facial, 1))).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.receipts.length()").value(2)));
+		runFor(Duration.ofSeconds(10));
+		assertThat(counter.printedTickets()).hasSize(1);
+		assertThat(office.printedTickets()).hasSize(1);
+
+		as(staff, post("/invoices/" + invoice + "/receipt")).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.length()").value(2));
+		runFor(Duration.ofSeconds(10));
+
+		assertThat(counter.printedTickets()).hasSize(2).last().satisfies(r -> assertThat(r).contains("KOPIE"));
+		assertThat(office.printedTickets()).hasSize(2).last().satisfies(r -> assertThat(r).contains("KOPIE"));
+		as(staff, get("/invoices/" + invoice))
+			.andExpect(jsonPath("$.receipts[*].printer").value(org.hamcrest.Matchers.contains("Counter", "Office")))
+			.andExpect(jsonPath("$.receipts[*].kind").value(org.hamcrest.Matchers.contains("copy", "copy")))
+			.andExpect(jsonPath("$.receipts[*].status").value(org.hamcrest.Matchers.contains("printed", "printed")));
+	}
+
+	@Test
+	void receiptPrintersAllInactiveFailOnEach() throws Exception {
+		printers.insert("Counter", OFFLINE, "local_printer", false, true, false);
+		printers.insert("Office", OFFLINE, "local_printer", false, true, false);
+
+		long invoice = id(issue(staff, confirm(laura, line(facial, 1))).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.receipt.status").value("failed"))
+			.andExpect(jsonPath("$.receipt.error").value("no active printer")));
+
+		assertThat(jobs.findByInvoice(invoice)).hasSize(2)
+			.allSatisfy(j -> assertThat(j.status()).isEqualTo(PrintJob.Status.FAILED));
+		as(staff, get("/invoices/" + invoice))
+			.andExpect(jsonPath("$.receipts[*].error").value(
+					org.hamcrest.Matchers.contains("no active printer", "no active printer")));
+	}
+
+	private static final String OFFLINE = "127.0.0.1:1";
 
 	private FakeEposPrinter fake() throws Exception {
 		var f = new FakeEposPrinter();

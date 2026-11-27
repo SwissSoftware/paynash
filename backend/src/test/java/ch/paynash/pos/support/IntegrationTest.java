@@ -75,6 +75,7 @@ public abstract class IntegrationTest {
 	void resetState() {
 		jdbc.sql("DELETE FROM idempotency_key").update();
 		jdbc.sql("DELETE FROM print_job").update();
+		jdbc.sql("DELETE FROM order_line_printer").update();
 		jdbc.sql("DELETE FROM printer").update();
 		jdbc.sql("DELETE FROM invoice_payment").update();
 		jdbc.sql("DELETE FROM invoice_vat").update();

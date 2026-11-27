@@ -56,11 +56,14 @@ class InvoiceSchemaTest extends IntegrationTest {
 	void receiptJobsBelongToAnInvoice() {
 		long invoice = invoice(1);
 		jdbc.sql("""
-				INSERT INTO print_job (invoice_id, item_type, kind, content, created_at)
-				VALUES (?, 'receipt', 'normal', 'x', now())""").param(invoice).update();
+				INSERT INTO print_job (invoice_id, kind, content, created_at)
+				VALUES (?, 'normal', 'x', now())""").param(invoice).update();
 		assertThatThrownBy(() -> jdbc.sql("""
-				INSERT INTO print_job (order_id, item_type, kind, content, created_at)
-				VALUES (?, 'receipt', 'normal', 'x', now())""").param(order).update())
+				INSERT INTO print_job (order_id, invoice_id, kind, content, created_at)
+				VALUES (?, ?, 'normal', 'x', now())""").params(order, invoice).update())
+			.isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.sql("""
+				INSERT INTO print_job (kind, content, created_at) VALUES ('normal', 'x', now())""").update())
 			.isInstanceOf(DataIntegrityViolationException.class);
 	}
 

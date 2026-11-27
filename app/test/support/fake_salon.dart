@@ -243,12 +243,29 @@ class FakeSalon {
   /// Copies printed, by invoice number.
   final copies = <String>[];
 
-  bool get _hasReceiptPrinter =>
-      backend.printers.any((p) => p['type'] == 'receipt' && p['active'] == true);
+  /// One receipt job per printer with receipts on: printing on the active
+  /// ones, failed on each if all are inactive, none without such a printer.
+  List<Map<String, dynamic>> _receipts(String kind) {
+    final receiptPrinters = backend.printers.where((p) => p['printsReceipts'] == true).toList();
+    final active = receiptPrinters.where((p) => p['active'] == true).toList();
+    return [
+      for (final p in active.isEmpty ? receiptPrinters : active)
+        active.isEmpty
+            ? {'kind': kind, 'printer': p['name'], 'status': 'failed', 'error': 'no active printer'}
+            : {
+                'kind': kind,
+                'printer': p['name'],
+                'status': receiptStatus,
+                'label': '${(p['name'] as String).toUpperCase()} 0001',
+              },
+    ];
+  }
 
-  Map<String, dynamic> _receipt(String kind) => _hasReceiptPrinter
-      ? {'kind': kind, 'type': 'receipt', 'status': receiptStatus, 'label': 'COUNTER 0001'}
-      : {'kind': kind, 'type': 'receipt', 'status': 'failed', 'error': 'no printer configured'};
+  void _setReceipts(Map<String, dynamic> i, String kind) {
+    final receipts = _receipts(kind);
+    i['receipts'] = receipts;
+    i['receipt'] = receipts.lastOrNull;
+  }
 
   Map<String, dynamic> invoice(int id) => invoices.firstWhere((i) => i['id'] == id);
 
@@ -263,6 +280,7 @@ class FakeSalon {
     final c = customers.where((c) => c['id'] == i['customerId']).firstOrNull;
     return {
       ...i,
+      'receipts': i['receipts'] ?? [if (i['receipt'] != null) i['receipt']],
       'business': {'name': settings['businessName']},
       'customer': {
         'number': c?['number'] ?? 0,
@@ -324,13 +342,13 @@ class FakeSalon {
           headers: {'content-disposition': 'attachment; filename="Rechnung-${i['number']}.pdf"'},
         );
       case ('POST', 'receipt'):
-        final receipt = i['receipt'] as Map<String, dynamic>?;
-        if (receipt != null && (receipt['status'] == 'pending' || receipt['status'] == 'printing')) {
+        final receipts = _invoiceJson(i)['receipts'] as List;
+        if (receipts.any((r) => r['status'] == 'pending' || r['status'] == 'printing')) {
           return FakeBackend._problem(409, 'The receipt is still being printed');
         }
         copies.add(i['number'] as String);
-        i['receipt'] = _receipt('copy');
-        return FakeBackend._json(201, i['receipt'] as Object);
+        _setReceipts(i, 'copy');
+        return FakeBackend._json(201, i['receipts'] as Object);
       case ('POST', 'payment'):
         if (i['status'] == 'cancelled') {
           return FakeBackend._problem(409, 'A cancelled invoice cannot be paid');
@@ -414,8 +432,8 @@ class FakeSalon {
       'cancelReason': null,
       'cancelledBy': null,
       'paymentHistory': <Map<String, dynamic>>[],
-      'receipt': _receipt('normal'),
     };
+    _setReceipts(i, 'normal');
     invoices.add(i);
     return FakeBackend._json(201, _invoiceJson(i));
   }

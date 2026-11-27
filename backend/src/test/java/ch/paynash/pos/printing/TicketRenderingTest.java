@@ -3,12 +3,14 @@ package ch.paynash.pos.printing;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import ch.paynash.pos.menu.ItemType;
 
-/** Snapshots of the tickets an order produces (spec ticket-printing, "Route lines by type" and "Ticket content"). */
+/** Snapshots of the tickets an order produces (spec ticket-printing, "Route lines by category" and "Ticket content"). */
 class TicketRenderingTest extends PrintingTestSupport {
 
 	private static final String LINE = "  " + "-".repeat(48);
@@ -146,5 +148,20 @@ class TicketRenderingTest extends PrintingTestSupport {
 				new Ticket.Row(false, "a # b")));
 		assertThat(Ticket.decode(ticket.encode())).isEqualTo(ticket);
 	}
+
+	@Test
+	void testTicketSaysWhatThePrinterPrints() {
+		var both = new Printer(1, "Counter", OFFLINE, "local_printer", true, true, true);
+		var none = new Printer(2, "Spare", OFFLINE, "local_printer", false, false, true);
+
+		assertThat(renderer.testTicket(both, List.of(new PrinterRepository.CategoryRef(1, "Beer"),
+				new PrinterRepository.CategoryRef(2, "Soft drinks")))
+			.encode()).contains("Prints tickets: Beer, Soft drinks").contains("Prints receipts");
+		assertThat(renderer.testTicket(none, List.of()).encode())
+			.contains("Prints nothing (tickets and receipts are off)");
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired
+	TicketRenderer renderer;
 
 }

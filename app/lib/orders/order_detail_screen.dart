@@ -4,7 +4,6 @@ import '../api/api_client.dart';
 import '../invoices/invoice_api.dart';
 import '../invoices/invoice_screen.dart';
 import '../menu/item_visuals.dart';
-import '../menu/menu_models.dart';
 import 'order_api.dart';
 import 'order_history_screen.dart';
 import 'order_models.dart';
@@ -279,14 +278,14 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
   }
 }
 
-/// "Kitchen ticket", "Bar STORNO", "Kitchen reprint"; the type when no
-/// printer was configured.
+/// "Kitchen ticket", "Bar STORNO", "Kitchen reprint"; "Ticket", "STORNO",
+/// "Reprint" for old tickets without a printer.
 String _ticketName(TicketData t) {
-  final where = t.printer ?? (t.type == ItemType.food ? 'Food' : 'Drinks');
+  final where = t.printer;
   return switch (t.kind) {
-    TicketKind.normal => '$where ticket',
-    TicketKind.storno => '$where STORNO',
-    TicketKind.reprint => '$where reprint',
+    TicketKind.normal => where == null ? 'Ticket' : '$where ticket',
+    TicketKind.storno => where == null ? 'STORNO' : '$where STORNO',
+    TicketKind.reprint => where == null ? 'Reprint' : '$where reprint',
   };
 }
 

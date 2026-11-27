@@ -31,7 +31,7 @@ void main() {
       final failed = app.backend.addSentOrder('12', anna, [(pizza, 1)]);
       app.backend.addTicket(failed, status: 'failed', error: 'printer offline');
       final ok = app.backend.addSentOrder('3', anna, [(cola, 1)]);
-      app.backend.addTicket(ok, type: 'drink', printer: 'Bar');
+      app.backend.addTicket(ok, printer: 'Bar');
 
       await open(tester, 'History');
 
@@ -69,7 +69,7 @@ void main() {
     testWidgets('a ticket still printing cannot be reprinted yet', (tester) async {
       final (app, cola, _) = await start(tester);
       final order = app.backend.addSentOrder('12', app.backend.staff.first, [(cola, 1)]);
-      final ticket = app.backend.addTicket(order, type: 'drink', printer: 'Bar', status: 'pending');
+      final ticket = app.backend.addTicket(order, printer: 'Bar', status: 'pending');
       await open(tester, 'History');
       await tester.tap(find.byKey(Key('history-order-${order['id']}')));
       await tester.pumpAndSettle();
@@ -79,7 +79,7 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('without a printer for the type the ticket says so', (tester) async {
+    testWidgets('an old ticket without a printer still shows its error', (tester) async {
       final (app, _, pizza) = await start(tester);
       final order = app.backend.addSentOrder('12', app.backend.staff.first, [(pizza, 1)]);
       app.backend.addTicket(order, printer: null, status: 'failed', error: 'no printer configured');
@@ -87,7 +87,7 @@ void main() {
       await tester.tap(find.byKey(Key('history-order-${order['id']}')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Food ticket failed: no printer configured'), findsOneWidget);
+      expect(find.text('Ticket failed: no printer configured'), findsOneWidget);
     });
   });
 
@@ -100,7 +100,6 @@ void main() {
       final waiting = app.backend.addSentOrder('1', anna, [(cola, 1)]);
       app.backend.addTicket(
         waiting,
-        type: 'drink',
         printer: 'Bar',
         status: 'pending',
         waitingReason: 'paper end',
@@ -152,7 +151,6 @@ void main() {
       final order = app.backend.addSentOrder('12', app.backend.staff.first, [(cola, 1)]);
       final ticket = app.backend.addTicket(
         order,
-        type: 'drink',
         printer: 'Bar',
         status: 'pending',
         waitingReason: 'cover open',
@@ -192,23 +190,31 @@ void main() {
   });
 
   group('printer setup', () {
-    testWidgets('an admin adds the bar printer and runs a test print', (tester) async {
+    int category(AppHarness app, String name) =>
+        app.backend.categories.firstWhere((c) => c['name'] == name)['id'] as int;
+
+    testWidgets('an admin adds the bar printer for a category and runs a test print', (tester) async {
       final (app, _, _) = await start(tester, admin: true);
-      app.backend.addPrinter('Kitchen', 'food');
+      app.backend.addPrinter('Kitchen', categoryIds: [category(app, 'Pizzas')]);
       await open(tester, 'Printers');
-      expect(find.byKey(const Key('printer-missing-drink')), findsOneWidget);
+      expect(find.text('Not printed: Drinks'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('printer-add')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const Key('printer-name')), 'Bar');
       await tester.enterText(find.byKey(const Key('printer-address')), '192.168.1.51');
-      await tester.tap(find.text('Drinks (bar)'));
+      await tester.tap(find.byKey(const Key('printer-category-Drinks')));
       await tester.tap(find.byKey(const Key('printer-save')));
       await tester.pumpAndSettle();
 
-      expect(app.backend.printers.last, containsPair('type', 'drink'));
+      expect(app.backend.printers.last, containsPair('printsTickets', true));
+      expect(app.backend.printers.last['categoryIds'], [category(app, 'Drinks')]);
       expect(find.byKey(const Key('printer-Bar')), findsOneWidget);
-      expect(find.byKey(const Key('printer-missing-drink')), findsNothing);
+      expect(find.byKey(const Key('printer-unprinted')), findsNothing);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('printer-info-Bar'))).data,
+        contains('Tickets: Drinks'),
+      );
 
       await tester.tap(find.byKey(const Key('printer-test-Bar')));
       await tester.pumpAndSettle();
@@ -216,9 +222,56 @@ void main() {
       expect(find.text('Test print sent to Bar'), findsOneWidget);
     });
 
+    testWidgets('a category can go to two printers', (tester) async {
+      final (app, _, _) = await start(tester, admin: true);
+      app.backend.addPrinter('Kitchen', categoryIds: [category(app, 'Pizzas')]);
+      await open(tester, 'Printers');
+
+      await tester.tap(find.byKey(const Key('printer-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('printer-name')), 'Pass');
+      await tester.enterText(find.byKey(const Key('printer-address')), '192.168.1.52');
+      await tester.tap(find.byKey(const Key('printer-category-Pizzas')));
+      await tester.tap(find.byKey(const Key('printer-category-Drinks')));
+      await tester.tap(find.byKey(const Key('printer-save')));
+      await tester.pumpAndSettle();
+
+      expect(app.backend.printers, hasLength(2));
+      expect(app.backend.printers.last['categoryIds'],
+          [category(app, 'Pizzas'), category(app, 'Drinks')]);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('printer-info-Pass'))).data,
+        contains('Tickets: Drinks, Pizzas'),
+      );
+    });
+
+    testWidgets('a salon adds a receipt printer', (tester) async {
+      final (app, _, _) = await start(tester, admin: true);
+      app.backend.salon.useSalon();
+      await open(tester, 'Printers');
+
+      await tester.tap(find.byKey(const Key('printer-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('printer-name')), 'Counter');
+      await tester.enterText(find.byKey(const Key('printer-address')), '192.168.1.60');
+      await tester.tap(find.byKey(const Key('printer-tickets')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('printer-categories')), findsNothing);
+      await tester.tap(find.byKey(const Key('printer-receipts')));
+      await tester.tap(find.byKey(const Key('printer-save')));
+      await tester.pumpAndSettle();
+
+      expect(app.backend.printers.single, containsPair('printsReceipts', true));
+      expect(app.backend.printers.single, containsPair('printsTickets', false));
+      expect(
+        tester.widget<Text>(find.byKey(const Key('printer-info-Counter'))).data,
+        contains('Receipts'),
+      );
+    });
+
     testWidgets('a failed test print shows the printer error', (tester) async {
       final (app, _, _) = await start(tester, admin: true);
-      app.backend.addPrinter('Kitchen', 'food');
+      app.backend.addPrinter('Kitchen');
       app.backend.testPrintErrors['Kitchen'] = 'cover open';
       await open(tester, 'Printers');
 
@@ -228,27 +281,11 @@ void main() {
       expect(find.text('Test print on Kitchen failed: cover open'), findsOneWidget);
     });
 
-    testWidgets('a second active printer for a type is refused', (tester) async {
-      final (app, _, _) = await start(tester, admin: true);
-      app.backend.addPrinter('Kitchen', 'food');
-      await open(tester, 'Printers');
-
-      await tester.tap(find.byKey(const Key('printer-add')));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('printer-name')), 'Kitchen 2');
-      await tester.enterText(find.byKey(const Key('printer-address')), '192.168.1.52');
-      await tester.tap(find.byKey(const Key('printer-save')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('"Kitchen" already prints food. Deactivate it first.'), findsOneWidget);
-      expect(app.backend.printers, hasLength(1));
-    });
-
     testWidgets('the printer list shows the status and when each station was last seen', (
       tester,
     ) async {
       final (app, _, _) = await start(tester, admin: true);
-      app.backend.addPrinter('Bar', 'drink');
+      app.backend.addPrinter('Bar');
       app.backend.printers.first
         ..['status'] = 'paper end'
         ..['stations'] = [

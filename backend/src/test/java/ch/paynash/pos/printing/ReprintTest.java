@@ -76,16 +76,36 @@ class ReprintTest extends PrintingTestSupport {
 	}
 
 	@Test
-	void reprintGoesToThePrinterNowServingTheType() throws Exception {
-		jdbc.sql("DELETE FROM printer").update();
+	void reprintGoesToTheOriginalPrinterAndFailsWhileItIsInactive() throws Exception {
+		jdbc.sql("UPDATE printer SET active = false WHERE name = 'Kitchen'").update();
 		long id = sendOrder(waiter, "12", line(pizza, 1));
-		assertThat(job(id, ItemType.FOOD).lastError()).isEqualTo("no printer configured");
-		printer("Kitchen", kitchen.address(), ItemType.FOOD);
+		PrintJob failed = job(id, ItemType.FOOD);
+		assertThat(failed.lastError()).isEqualTo("no active printer");
+
+		reprint(id, failed.id()).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.status").value("failed"))
+			.andExpect(jsonPath("$.error").value("no active printer"));
+		jdbc.sql("UPDATE printer SET active = true WHERE name = 'Kitchen'").update();
+		reprint(id, failed.id()).andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("pending"));
+		worker.deliverDue();
+
+		assertThat(kitchen.requests).singleElement();
+	}
+
+	@Test
+	void reprintIgnoresLaterAssignmentChanges() throws Exception {
+		var pass = fakePrinter();
+		long id = sendOrder(waiter, "12", line(pizza, 1));
+		worker.deliverDue();
+		long passId = printerRepository.insert("Pass", pass.address(), "local_printer", true, false, true);
+		jdbc.sql("DELETE FROM printer_category").update();
+		assign(passId, "Pizzas");
 
 		reprint(id, job(id, ItemType.FOOD).id()).andExpect(status().isCreated());
 		worker.deliverDue();
 
-		assertThat(kitchen.requests).singleElement();
+		assertThat(kitchen.requests).hasSize(2);
+		assertThat(pass.requests).isEmpty();
 	}
 
 	@Test

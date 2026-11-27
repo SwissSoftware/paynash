@@ -102,7 +102,10 @@ void main() {
       await tester.tap(find.byKey(const Key('order-send')));
       await tester.pumpAndSettle();
       expect(
-        find.text('Invoice 2026-0001 issued, but no receipt was printed: no printer configured'),
+        find.text(
+          'Invoice 2026-0001 issued, but no receipt was printed: no printer has receipts '
+          'switched on',
+        ),
         findsOneWidget,
       );
     });

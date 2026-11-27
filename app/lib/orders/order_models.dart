@@ -89,12 +89,11 @@ enum TicketStatus { pending, printing, printed, unclear, failed }
 
 enum TicketKind { normal, storno, reprint }
 
-/// A production ticket of an order (kitchen or bar).
+/// A production ticket of an order, for one printer.
 class TicketData {
   TicketData({
     required this.id,
     required this.kind,
-    required this.type,
     required this.status,
     required this.reprinted,
     this.printer,
@@ -107,7 +106,6 @@ class TicketData {
   factory TicketData.fromJson(Map<String, dynamic> json) => TicketData(
     id: json['id'] as int,
     kind: TicketKind.values.byName(json['kind'] as String),
-    type: ItemType.values.byName(json['type'] as String),
     printer: json['printer'] as String?,
     status: TicketStatus.values.byName(json['status'] as String),
     error: json['error'] as String?,
@@ -119,9 +117,8 @@ class TicketData {
 
   final int id;
   final TicketKind kind;
-  final ItemType type;
 
-  /// Null when no printer was configured for [type].
+  /// Null only for old tickets that were created without a printer.
   final String? printer;
   final TicketStatus status;
   final String? error;

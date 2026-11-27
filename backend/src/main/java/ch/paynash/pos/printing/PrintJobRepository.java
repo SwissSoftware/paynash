@@ -14,7 +14,7 @@ import org.springframework.stereotype.Repository;
 public class PrintJobRepository {
 
 	private static final String SELECT = """
-			SELECT j.id, j.order_id, j.invoice_id, j.item_type, j.printer_id, p.name AS printer_name, j.kind, j.content,
+			SELECT j.id, j.order_id, j.invoice_id, j.printer_id, p.name AS printer_name, j.kind, j.content,
 			       j.status, j.attempts, j.waiting_reason, j.last_error, j.first_attempt_at, j.next_attempt_at, j.reprint_of,
 			       j.ticket_no, j.line_count, j.resolution, j.resolved_at, j.created_at,
 			       EXISTS (SELECT 1 FROM print_job r WHERE r.reprint_of = j.id) AS reprinted
@@ -27,26 +27,29 @@ public class PrintJobRepository {
 	}
 
 	/** Exactly one of {@code orderId} and {@code invoiceId} is set. */
-	public long insertPending(Long orderId, Long invoiceId, PrintPurpose type, long printerId, PrintJob.Kind kind,
-			String content, Long reprintOf, int ticketNo, int lineCount, Instant now) {
+	public long insertPending(Long orderId, Long invoiceId, long printerId, PrintJob.Kind kind, String content,
+			Long reprintOf, int ticketNo, int lineCount, Instant now) {
 		return jdbc.sql("""
-				INSERT INTO print_job (order_id, invoice_id, item_type, printer_id, kind, content, reprint_of, ticket_no,
+				INSERT INTO print_job (order_id, invoice_id, printer_id, kind, content, reprint_of, ticket_no,
 				                       line_count, created_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""")
-			.params(orderId, invoiceId, type.dbValue(), printerId, kind.dbValue(), content, reprintOf, ticketNo,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""")
+			.params(orderId, invoiceId, printerId, kind.dbValue(), content, reprintOf, ticketNo,
 					lineCount, Timestamp.from(now))
 			.query(Long.class)
 			.single();
 	}
 
-	/** A ticket that cannot be delivered at all, e.g. because no printer serves its type. */
-	public long insertFailed(Long orderId, Long invoiceId, PrintPurpose type, PrintJob.Kind kind, String content,
+	/**
+	 * A ticket that cannot be delivered without a configuration change, e.g. because its printer is inactive.
+	 * {@code printerId} is the printer it was meant for; null only for jobs whose printer is unknown.
+	 */
+	public long insertFailed(Long orderId, Long invoiceId, Long printerId, PrintJob.Kind kind, String content,
 			Long reprintOf, int lineCount, String error, Instant now) {
 		return jdbc.sql("""
-				INSERT INTO print_job (order_id, invoice_id, item_type, kind, content, reprint_of, line_count, status,
+				INSERT INTO print_job (order_id, invoice_id, printer_id, kind, content, reprint_of, line_count, status,
 				                       last_error, created_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?, 'failed', ?, ?) RETURNING id""")
-			.params(orderId, invoiceId, type.dbValue(), kind.dbValue(), content, reprintOf, lineCount, error,
+			.params(orderId, invoiceId, printerId, kind.dbValue(), content, reprintOf, lineCount, error,
 					Timestamp.from(now))
 			.query(Long.class)
 			.single();
@@ -173,8 +176,7 @@ public class PrintJobRepository {
 		int ticketNo = rs.getInt("ticket_no");
 		Integer number = rs.wasNull() ? null : ticketNo;
 		return new PrintJob(rs.getLong("id"), rs.getObject("order_id", Long.class),
-				rs.getObject("invoice_id", Long.class), PrintPurpose.fromDb(rs.getString("item_type")),
-				printer, rs.getString("printer_name"), PrintJob.Kind.fromDb(rs.getString("kind")),
+				rs.getObject("invoice_id", Long.class), printer, rs.getString("printer_name"), PrintJob.Kind.fromDb(rs.getString("kind")),
 				rs.getString("content"), PrintJob.Status.fromDb(rs.getString("status")), rs.getInt("attempts"),
 				rs.getString("waiting_reason"), rs.getString("last_error"), instant(rs, "first_attempt_at"),
 				instant(rs, "next_attempt_at"), original, rs.getBoolean("reprinted"), number, rs.getInt("line_count"),

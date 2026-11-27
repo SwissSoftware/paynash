@@ -102,8 +102,8 @@ void main() {
     Future<AppHarness> startAsAdmin(WidgetTester tester) async {
       final app = AppHarness(tester);
       app.backend.addStaff('boss', 'admin', '1111', displayName: 'Boss');
-      app.backend.addPrinter('Bar', 'drink');
-      app.backend.addPrinter('Kitchen', 'food', address: '192.168.1.51');
+      app.backend.addPrinter('Bar');
+      app.backend.addPrinter('Kitchen', address: '192.168.1.51');
       await app.start();
       await app.login('boss', '1111');
       await openStaff(tester);

@@ -104,6 +104,33 @@ class OrderSchemaTest extends IntegrationTest {
 			.isInstanceOf(DataIntegrityViolationException.class);
 	}
 
+	@Test
+	void printerAssignmentsAndLineRoutesAreUniqueAndFollowDeletes() {
+		assertThat(columns("printer")).contains("prints_tickets", "prints_receipts").doesNotContain("purpose");
+		assertThat(columns("print_job")).doesNotContain("item_type");
+		long printer = jdbc.sql("INSERT INTO printer (name, address) VALUES ('Bar', '10.0.0.5') RETURNING id")
+			.query(Long.class)
+			.single();
+		long item = menuItem();
+		long category = jdbc.sql("SELECT category_id FROM menu_item WHERE id = ?").param(item).query(Long.class).single();
+		jdbc.sql("INSERT INTO printer_category (printer_id, category_id) VALUES (?, ?)").params(printer, category).update();
+		assertThatThrownBy(() -> jdbc.sql("INSERT INTO printer_category (printer_id, category_id) VALUES (?, ?)")
+			.params(printer, category)
+			.update()).isInstanceOf(DataIntegrityViolationException.class);
+		long line = line(order("12", "sent"), item, 1, "sent");
+		jdbc.sql("INSERT INTO order_line_printer (order_line_id, printer_id) VALUES (?, ?)").params(line, printer).update();
+		assertThatThrownBy(() -> jdbc.sql("INSERT INTO order_line_printer (order_line_id, printer_id) VALUES (?, ?)")
+			.params(line, printer)
+			.update()).isInstanceOf(DataIntegrityViolationException.class);
+
+		jdbc.sql("DELETE FROM order_line WHERE id = ?").param(line).update();
+		jdbc.sql("DELETE FROM menu_item WHERE id = ?").param(item).update();
+		jdbc.sql("DELETE FROM category WHERE id = ?").param(category).update();
+
+		assertThat(jdbc.sql("SELECT count(*) FROM printer_category").query(Long.class).single()).isZero();
+		assertThat(jdbc.sql("SELECT count(*) FROM order_line_printer").query(Long.class).single()).isZero();
+	}
+
 	private long order(String table, String status) {
 		return jdbc.sql("INSERT INTO orders (table_label, status, sent_by, sent_at) VALUES (?, ?, ?, ?) RETURNING id")
 			.params(table, status, waiter, Timestamp.from(Instant.now()))

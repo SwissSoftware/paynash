@@ -51,7 +51,8 @@ public class InvoiceController {
 	}
 
 	private InvoiceView view(Invoice invoice) {
-		return InvoiceView.of(invoice, receipts.latest(invoice.id()).map(TicketView::of).orElse(null));
+		return InvoiceView.of(invoice, receipts.latest(invoice.id()).map(TicketView::of).orElse(null),
+				receipts.latestPerPrinter(invoice.id()).stream().map(TicketView::of).toList());
 	}
 
 	public record LineView(int position, int qty, String name, String category, String unitPrice, String vatRate,
@@ -69,15 +70,16 @@ public class InvoiceController {
 	 * {@code status} is open, paid, or cancelled; {@code payment} is the active payment, {@code paymentHistory} every
 	 * payment including removed ones. {@code vatUid} and {@code vat} are only set if the invoice has VAT.
 	 * {@code receipt} is the latest receipt print job: its status, and the printer's error if it waits, is unclear,
-	 * or failed (e.g. "no printer configured").
+	 * or failed (e.g. "no active printer"). {@code receipts} is the latest receipt job of each printer that received
+	 * one; empty when no printer has receipts on.
 	 */
 	public record InvoiceView(long id, String number, long orderId, LocalDate date, Instant issuedAt, String issuedBy,
 			Invoice.Status status, Invoice.Business business, Invoice.CustomerCopy customer, List<LineView> lines,
 			String total, boolean vatEnabled, String vatUid, List<VatView> vat, Instant cancelledAt,
 			String cancelledBy, String cancelReason, PaymentView payment, List<PaymentView> paymentHistory,
-			TicketView receipt) {
+			TicketView receipt, List<TicketView> receipts) {
 
-		static InvoiceView of(Invoice i, TicketView receipt) {
+		static InvoiceView of(Invoice i, TicketView receipt, List<TicketView> receipts) {
 			var payments = i.payments().stream().map(InvoiceView::payment).toList();
 			Invoice.Payment active = i.activePayment();
 			return new InvoiceView(i.id(), i.number(), i.orderId(), i.invoiceDate(), i.issuedAt(), i.issuedByName(),
@@ -95,7 +97,7 @@ public class InvoiceController {
 								Money.format(v.netRappen()), Money.format(v.vatRappen())))
 						.toList(),
 					i.cancelledAt(), i.cancelledByName(), i.cancelReason(), active == null ? null : payment(active),
-					payments, receipt);
+					payments, receipt, receipts);
 		}
 
 		private static PaymentView payment(Invoice.Payment p) {
@@ -165,9 +167,10 @@ public class InvoiceController {
 	@ResponseStatus(HttpStatus.CREATED)
 	@Operation(summary = "Print the receipt again as a copy",
 			description = "Marked \"KOPIE\" (and \"STORNIERT\" for a cancelled invoice). Also resolves an unclear "
-					+ "receipt. 409 while a receipt of the invoice is still waiting or printing.")
-	public TicketView printCopy(@PathVariable long id) {
-		return TicketView.of(receipts.copy(id));
+					+ "receipt. Printed on every printer with receipts on; the list is empty when there is none. 409 "
+					+ "while a receipt of the invoice is still waiting or printing.")
+	public List<TicketView> printCopy(@PathVariable long id) {
+		return receipts.copy(id).stream().map(TicketView::of).toList();
 	}
 
 	@PostMapping("/invoices/{id}/payment")

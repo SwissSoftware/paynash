@@ -245,7 +245,6 @@ class FakeBackend {
   /// Adds a ticket to an order, e.g. a failed kitchen ticket.
   Map<String, dynamic> addTicket(
     Map<String, dynamic> order, {
-    String type = 'food',
     String kind = 'normal',
     String? printer = 'Kitchen',
     String status = 'printed',
@@ -258,7 +257,6 @@ class FakeBackend {
     final ticket = {
       'id': _nextTicketId++,
       'kind': kind,
-      'type': type,
       'printer': printer,
       'status': status,
       'waitingReason': waitingReason,
@@ -463,7 +461,6 @@ class FakeBackend {
       if (original['status'] == 'unclear') original['resolution'] = 'reprint';
       final ticket = addTicket(
         o,
-        type: original['type'] as String,
         kind: 'reprint',
         printer: original['printer'] as String? ?? 'Kitchen',
         status: reprintStatus,
@@ -527,22 +524,55 @@ class FakeBackend {
   /// Names of printers a test print was sent to.
   final testPrints = <String>[];
 
-  int addPrinter(String name, String type, {String address = '192.168.1.50', bool active = true}) {
+  /// A printer that prints the lines of [categoryIds] if [tickets] is on, and
+  /// invoice receipts if [receipts] is on (change printer-category-routing).
+  int addPrinter(
+    String name, {
+    bool tickets = true,
+    bool receipts = false,
+    List<int> categoryIds = const [],
+    String address = '192.168.1.50',
+    bool active = true,
+  }) {
     final id = _nextPrinterId++;
     printers.add({
       'id': id,
       'name': name,
       'address': address,
       'deviceId': 'local_printer',
-      'type': type,
+      'printsTickets': tickets,
+      'printsReceipts': receipts,
+      'categoryIds': [...categoryIds],
       'active': active,
     });
     return id;
   }
 
+  Map<String, dynamic> _printerJson(Map<String, dynamic> p) => {
+    ...p,
+    'categories': [
+      for (final c in categories)
+        if ((p['categoryIds'] as List).contains(c['id'])) {'id': c['id'], 'name': c['name']},
+    ],
+  };
+
   http.Response? _printerRoutes(http.Request r, Map<String, dynamic>? body) {
     final path = r.url.path;
-    if (path == '/admin/printers' && r.method == 'GET') return _json(200, printers);
+    if (path == '/admin/printers' && r.method == 'GET') {
+      bool printed(Map<String, dynamic> c) => printers.any(
+        (p) =>
+            p['active'] == true &&
+            p['printsTickets'] == true &&
+            (p['categoryIds'] as List).contains(c['id']),
+      );
+      return _json(200, {
+        'printers': [for (final p in printers) _printerJson(p)],
+        'unprintedCategories': [
+          for (final c in categories)
+            if (!printed(c)) {'id': c['id'], 'name': c['name']},
+        ],
+      });
+    }
     final match = RegExp(r'^/admin/printers(?:/(\d+))?(/test)?$').firstMatch(path);
     if (match == null) return null;
     final id = match.group(1) == null ? null : int.parse(match.group(1)!);
@@ -555,25 +585,25 @@ class FakeBackend {
     final errors = <String, String>{};
     if ((body!['name'] as String).isEmpty) errors['name'] = 'must not be blank';
     if ((body['address'] as String).isEmpty) errors['address'] = 'must not be blank';
-    final other = printers.where(
-      (p) => p['id'] != id && p['active'] == true && p['type'] == body['type'],
-    );
-    if (body['active'] == true && other.isNotEmpty) {
-      errors['type'] =
-          '"${other.first['name']}" already prints ${body['type']}. Deactivate it first.';
-    }
+    final categoryIds = [for (final c in body['categoryIds'] as List? ?? const []) c as int];
+    final unknown = categoryIds.where((c) => !categories.any((k) => k['id'] == c));
+    if (unknown.isNotEmpty) errors['categoryIds'] = 'Unknown category: ${unknown.first}';
     if (errors.isNotEmpty) return _problem(400, 'Validation failed', errors);
     if (id == null) {
       final newId = addPrinter(
         body['name'] as String,
-        body['type'] as String,
+        tickets: body['printsTickets'] as bool? ?? false,
+        receipts: body['printsReceipts'] as bool? ?? false,
+        categoryIds: categoryIds,
         address: body['address'] as String,
         active: body['active'] as bool,
       );
-      return _json(201, printers.firstWhere((p) => p['id'] == newId));
+      return _json(201, _printerJson(printers.firstWhere((p) => p['id'] == newId)));
     }
-    final p = printers.firstWhere((p) => p['id'] == id)..addAll(body);
-    return _json(200, p);
+    final p = printers.firstWhere((p) => p['id'] == id)
+      ..addAll(body)
+      ..['categoryIds'] = categoryIds;
+    return _json(200, _printerJson(p));
   }
 
   // --- station

@@ -188,9 +188,9 @@ class StaffAdminControllerTest extends IntegrationTest {
 	}
 
 	private long printer(String name) {
-		return jdbc.sql("INSERT INTO printer (name, address, purpose, active) VALUES (?, '10.0.0.9', ?, false) "
+		return jdbc.sql("INSERT INTO printer (name, address, prints_tickets, active) VALUES (?, '10.0.0.9', true, false) "
 				+ "RETURNING id")
-			.params(name, name.equals("Bar") ? "drink" : "food")
+			.params(name)
 			.query(Long.class)
 			.single();
 	}

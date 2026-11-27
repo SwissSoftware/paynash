@@ -18,7 +18,7 @@ class EposClientTest {
 	private final EposClient client = new EposClient(Duration.ofSeconds(1), Duration.ofMillis(400));
 
 	private static Printer printer(String address) {
-		return new Printer(1, "Bar", address, "local_printer", PrintPurpose.DRINK, true);
+		return new Printer(1, "Bar", address, "local_printer", true, false, true);
 	}
 
 	@Test

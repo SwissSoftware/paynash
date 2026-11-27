@@ -211,8 +211,11 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
         if (!mounted) return;
         final receipt = issued.receipt;
         _message(
-          receipt != null && receipt.status == 'failed'
-              ? 'Invoice ${issued.number} issued, but no receipt was printed: ${receipt.error}'
+          issued.receipts.isEmpty
+              ? 'Invoice ${issued.number} issued, but no receipt was printed: no printer has '
+                    'receipts switched on'
+              : issued.noReceiptPrinted
+              ? 'Invoice ${issued.number} issued, but no receipt was printed: ${receipt?.error}'
               : 'Invoice ${issued.number} issued',
         );
       } on ApiError catch (e) {

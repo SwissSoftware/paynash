@@ -80,9 +80,9 @@ class UpgradeMigrationTest {
 				INSERT INTO staff (id, username, display_name, role, pin_hash) OVERRIDING SYSTEM VALUE
 				    VALUES (2, 'station-bar', 'Station Bar', 'station', 'h');
 				INSERT INTO station_printer (station_id, printer_id) VALUES (2, 1);
-				INSERT INTO print_job (order_id, item_type, printer_id, kind, content, status, ticket_no, created_at)
-				    VALUES (1, 'drink', 1, 'normal', 'x', 'printing', 1, now()),
-				           (1, 'drink', 1, 'normal', 'x', 'unclear', 2, now());
+				INSERT INTO print_job (order_id, printer_id, kind, content, status, ticket_no, created_at)
+				    VALUES (1, 1, 'normal', 'x', 'printing', 1, now()),
+				           (1, 1, 'normal', 'x', 'unclear', 2, now());
 				""");
 		assertThat(jdbc.sql("SELECT count(*) FROM " + SCHEMA + ".print_job").query(Long.class).single()).isEqualTo(3);
 		assertThat(jdbc.sql("SELECT last_ticket_no FROM " + SCHEMA + ".printer").query(Integer.class).single())
@@ -117,9 +117,58 @@ class UpgradeMigrationTest {
 		assertThat(one("SELECT vat_rate_permille::text FROM menu_item")).isEqualTo("81");
 		assertThat(one("SELECT vat_rate_snapshot::text FROM order_line")).isEqualTo("81");
 		assertThat(one("SELECT table_label FROM orders")).isEqualTo("12");
-		assertThat(one("SELECT purpose FROM printer")).isEqualTo("drink");
+		assertThat(one("SELECT prints_tickets::text FROM printer")).isEqualTo("true");
 		assertThat(one("SELECT status FROM print_job")).isEqualTo("printed");
 		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
+	}
+
+	@Test
+	void printerCategoryMigrationKeepsTodaysRouting() {
+		jdbc.sql("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE").update();
+		flyway("14").migrate();
+		in(SCHEMA, """
+				INSERT INTO staff (id, username, display_name, role, pin_hash) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'anna', 'Anna', 'waiter', 'h');
+				INSERT INTO category (id, name) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'Pizza'), (2, 'Drinks'), (3, 'Mixed'), (4, 'Face'), (5, 'Empty');
+				INSERT INTO menu_item (id, category_id, name, type, price_rappen) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 1, 'Margherita', 'food', 1800), (2, 2, 'Cola', 'drink', 450),
+				           (3, 3, 'Nachos', 'food', 900), (4, 3, 'Beer', 'drink', 600),
+				           (5, 4, 'Facial', 'service', 12000);
+				INSERT INTO printer (id, name, address, purpose) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'Kitchen', '10.0.0.5', 'food'), (2, 'Bar', '10.0.0.6', 'drink'),
+				           (3, 'Counter', '10.0.0.7', 'receipt');
+				INSERT INTO orders (id, table_label, sent_by, sent_at) OVERRIDING SYSTEM VALUE
+				    VALUES (1, '12', 1, now()), (2, '13', 1, now());
+				INSERT INTO order_line (id, order_id, menu_item_id, name_snapshot, type_snapshot, category_snapshot,
+				    unit_price_snapshot, qty) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 1, 1, 'Margherita', 'food', 'Pizza', 1800, 1),
+				           (2, 1, 2, 'Cola', 'drink', 'Drinks', 450, 1),
+				           (3, 2, 1, 'Margherita', 'food', 'Pizza', 1800, 1);
+				INSERT INTO print_job (order_id, item_type, printer_id, kind, content, status, ticket_no, created_at)
+				    VALUES (1, 'food', 1, 'normal', 'x', 'printed', 1, now()),
+				           (1, 'drink', 2, 'normal', 'x', 'printed', 1, now());
+				INSERT INTO print_job (order_id, item_type, kind, content, status, last_error, created_at)
+				    VALUES (2, 'food', 'normal', 'x', 'failed', 'no printer configured', now());
+				""");
+
+		var result = flyway(null).migrate();
+
+		assertThat(result.success).isTrue();
+		assertThat(rows("SELECT name || ':' || prints_tickets || ':' || prints_receipts FROM printer ORDER BY id"))
+			.containsExactly("Kitchen:true:false", "Bar:true:false", "Counter:false:true");
+		assertThat(rows("""
+				SELECT p.name || ':' || c.name FROM printer_category pc JOIN printer p ON p.id = pc.printer_id
+				JOIN category c ON c.id = pc.category_id ORDER BY p.id, c.id"""))
+			.containsExactly("Kitchen:Pizza", "Kitchen:Mixed", "Bar:Drinks", "Bar:Mixed");
+		assertThat(rows("SELECT order_line_id || ':' || printer_id FROM order_line_printer ORDER BY order_line_id"))
+			.containsExactly("1:1", "2:2");
+		assertThat(rows("SELECT count(*)::text FROM print_job")).containsExactly("3");
+		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
+	}
+
+	private java.util.List<String> rows(String sql) {
+		return jdbc.sql(sql.replaceAll("\\b(FROM|JOIN) (\\w+)", "$1 " + SCHEMA + ".$2")).query(String.class).list();
 	}
 
 	private String one(String sql) {

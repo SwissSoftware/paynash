@@ -127,6 +127,20 @@ class SalonOrderTest extends OrderTestSupport {
 		assertThat(jdbc.sql("SELECT count(*) FROM print_job").query(Long.class).single()).isZero();
 	}
 
+	@Test
+	void serviceCategoryAssignedToAPrinterIsPrinted() throws Exception {
+		long desk = jdbc.sql("""
+				INSERT INTO printer (name, address, prints_tickets, active) VALUES ('Desk', '127.0.0.1:1', true, true)
+				RETURNING id""").query(Long.class).single();
+		jdbc.sql("INSERT INTO printer_category (printer_id, category_id) SELECT ?, id FROM category WHERE name = 'Face'")
+			.param(desk)
+			.update();
+
+		confirmOrder(laura, line(facial, 1));
+
+		assertThat(jdbc.sql("SELECT printer_id FROM print_job").query(Long.class).list()).containsExactly(desk);
+	}
+
 	// --- history (5.3)
 
 	@Test

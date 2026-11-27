@@ -13,7 +13,7 @@ Future<AppHarness> start(WidgetTester tester, {bool admin = false, bool printer 
   b.addStaff('anna', 'waiter', '4711', displayName: 'Anna');
   b.addStaff('boss', 'admin', '1111', displayName: 'Boss');
   b.salon.useSalon();
-  if (printer) b.addPrinter('Counter', 'receipt');
+  if (printer) b.addPrinter('Counter', tickets: false, receipts: true);
   final laura = b.salon.addCustomer('Laura', 'Meier');
   final peter = b.salon.addCustomer('Peter', 'Meili');
   Map<String, dynamic> invoice(int id, String number, int customer, String name, String date,
@@ -41,7 +41,7 @@ Future<AppHarness> start(WidgetTester tester, {bool admin = false, bool printer 
             {'method': 'card', 'paidOn': date, 'recordedBy': 'Anna', 'removedBy': null,
              'removeReason': null},
         ],
-        'receipt': {'kind': 'normal', 'type': 'receipt', 'status': 'printed'},
+        'receipt': {'kind': 'normal', 'printer': 'Counter', 'status': 'printed'},
       };
   b.salon.invoices.addAll([
     invoice(1, '2026-0001', laura, 'Laura Meier', '2026-10-30', 'open'),
@@ -159,19 +159,47 @@ void main() {
       final app = await start(tester, printer: false);
       app.backend.salon.invoice(2)['receipt'] = {
         'kind': 'normal',
-        'type': 'receipt',
+        'printer': 'Counter',
         'status': 'failed',
-        'error': 'no printer configured',
+        'error': 'no active printer',
       };
       await goToNovember(tester);
       await openInvoiceTile(tester, '2026-0002');
-      expect(find.text('Receipt failed: no printer configured'), findsOneWidget);
+      expect(find.text('Receipt failed: no active printer'), findsOneWidget);
 
-      app.backend.addPrinter('Counter', 'receipt');
+      app.backend.addPrinter('Counter', tickets: false, receipts: true);
       await tester.tap(find.byKey(const Key('invoice-print-copy')));
       await tester.pumpAndSettle();
       expect(app.backend.salon.copies, ['2026-0002']);
       expect(find.text('Receipt printed'), findsOneWidget);
+    });
+
+    testWidgets('shows the receipt status of each receipt printer', (tester) async {
+      final app = await start(tester);
+      app.backend.salon.invoice(2)['receipts'] = [
+        {'kind': 'normal', 'printer': 'Counter', 'status': 'printed'},
+        {'kind': 'normal', 'printer': 'Office', 'status': 'unclear', 'error': 'no answer'},
+      ];
+      await goToNovember(tester);
+      await openInvoiceTile(tester, '2026-0002');
+
+      expect(find.text('Counter: Receipt printed'), findsOneWidget);
+      expect(
+        find.text('Office: Receipt unclear: check the receipt and print a copy if needed'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('without a receipt printer the invoice says no receipt was printed', (tester) async {
+      final app = await start(tester, printer: false);
+      app.backend.salon.invoice(2)
+        ..['receipt'] = null
+        ..['receipts'] = <Object>[];
+      await goToNovember(tester);
+      await openInvoiceTile(tester, '2026-0002');
+
+      expect(find.byKey(const Key('invoice-receipt-none')), findsOneWidget);
+      expect(find.text('No receipt printed: no printer has receipts switched on'), findsOneWidget);
     });
 
     testWidgets('downloads the PDF', (tester) async {
