@@ -24,6 +24,10 @@ Each ticket SHALL have a status: `pending`, `printing`, `printed`, `unclear`, or
 - **WHEN** the printer reports that the configured device ID does not exist
 - **THEN** the ticket is marked `failed` with "device ID not found on the printer"
 
+#### Scenario: Paper end
+- **WHEN** the printer reports paper end
+- **THEN** the ticket stays `pending` with the reason "paper end" and is printed automatically once paper is loaded
+
 ### Requirement: Reprint
 Waiters, admins, and stations SHALL be able to reprint any ticket that is not `pending` or `printing`. A reprinted ticket SHALL be marked "REPRINT" and keep the original ticket number, so it is not mistaken for a new order.
 

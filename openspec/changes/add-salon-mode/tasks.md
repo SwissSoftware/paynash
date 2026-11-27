@@ -86,7 +86,7 @@
 ## 14. App: invoices (spec: invoicing, ticket-printing; design D11)
 
 - [x] 14.1 Add `app/lib/invoices/` with the invoice list (period, status filter, search) and invoice view (content, receipt status with error, "Print copy", "Download PDF", "Mark as paid" with method and date, "Cancel" and "Undo payment" for admins). Verify with `invoices_test.dart`: actions per role, payment dialog validation, receipt error shown
-- [ ] 14.2 Download the PDF through `export/file_saver` on web, Android, and iOS. Verify on web in a widget test and manually on one Android and one iOS device
+- [ ] 14.2 Download the PDF through `export/file_saver` on web, Android, and iOS. Verify on web in a widget test and manually on one Android and one iOS device → moved to hardware-acceptance
 
 ## 15. App: sales report (spec: sales-reporting; design D11)
 
@@ -94,13 +94,13 @@
 
 ## 16. Salon operation docs
 
-- [ ] 16.1 Write `docs/salon-setup.md`: installation, switching to salon mode, business details and VAT, receipt printer setup, services, staff, daily use (confirm and invoice, payment, copy, cancel), month-end report and Excel, data protection requests, and backups with an off-site copy for the 10-year retention. Verify by setting up a fresh installation as a salon using only the guide
+- [ ] 16.1 Write `docs/salon-setup.md`: installation, switching to salon mode, business details and VAT, receipt printer setup, services, staff, daily use (confirm and invoice, payment, copy, cancel), month-end report and Excel, data protection requests, and backups with an off-site copy for the 10-year retention. Verify by setting up a fresh installation as a salon using only the guide → moved to hardware-acceptance
 
 ## 17. Integration checks
 
 - [x] 17.1 Run backend tests, `flutter analyze`, and `flutter test`, and verify that everything passes
-- [ ] 17.2 End-to-end test with a real TM-m30III: set up a salon, create customers and services with VAT on, confirm and invoice several orders from web and a phone, pull the receipt paper during issuing, cancel and reissue one invoice, mark payments with different methods, and export the month. Verify that receipt, PDF, app report, and Excel show the same numbers, invoice numbers have no gaps, and record the results in `docs/acceptance.md`
-- [ ] 17.3 Regression check in event mode: run the event acceptance steps from `harden-printing-for-events` 10.4 on the upgraded version. Verify that tickets, stations, and exports behave as before
+- [ ] 17.2 End-to-end test with a real TM-m30III: set up a salon, create customers and services with VAT on, confirm and invoice several orders from web and a phone, pull the receipt paper during issuing, cancel and reissue one invoice, mark payments with different methods, and export the month. Verify that receipt, PDF, app report, and Excel show the same numbers, invoice numbers have no gaps, and record the results in `docs/acceptance.md` → moved to hardware-acceptance
+- [ ] 17.3 Regression check in event mode: run the event acceptance steps from `harden-printing-for-events` 10.4 on the upgraded version. Verify that tickets, stations, and exports behave as before → moved to hardware-acceptance
 
 ## Workflow follow-up
 

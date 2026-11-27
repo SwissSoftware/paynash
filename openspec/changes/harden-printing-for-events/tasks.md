@@ -18,7 +18,7 @@
 ## 4. Backend: printer status monitoring (spec: ticket-printing, print-station; design D4)
 
 - [x] 4.1 Add a status probe that runs at least every 15 s per active printer while its queue is idle and keeps the latest status in memory (baseline: offline via connect check). Expose it in the admin printer list. Verify with a test against a fake ePOS server that stopping the server shows `offline` within 15 s and starting it shows `ready`
-- [ ] 4.2 After the hardware test (`add-pos-ordering-system` 5.8): if ePOS returns status bits without printing, report paper end, cover open, and paper near end from the probe; otherwise record in `docs/printing.md` that only offline is detected while idle. Verify against the real TM-m30III and record the result in `docs/printing.md`
+- [ ] 4.2 After the hardware test (`add-pos-ordering-system` 5.8): if ePOS returns status bits without printing, report paper end, cover open, and paper near end from the probe; otherwise record in `docs/printing.md` that only offline is detected while idle. Verify against the real TM-m30III and record the result in `docs/printing.md` → moved to hardware-acceptance
 
 ## 5. Backend: station role and endpoints (spec: staff-access, print-station; design D6)
 
@@ -47,14 +47,14 @@
 
 ## 9. Event operation docs
 
-- [ ] 9.1 Write `docs/event-setup.md`: network layout (router, switch, APs, wired printers and server recommended, separate 5 GHz staff SSID, fixed IPs), WiFi printer settings (DHCP reservation, power saving off, signal check), a UPS for router, switch, server, and printers, and station tablet setup (charger, kiosk/guided mode, sound armed). Verify by setting up one station tablet using only the guide
+- [ ] 9.1 Write `docs/event-setup.md`: network layout (router, switch, APs, wired printers and server recommended, separate 5 GHz staff SSID, fixed IPs), WiFi printer settings (DHCP reservation, power saving off, signal check), a UPS for router, switch, server, and printers, and station tablet setup (charger, kiosk/guided mode, sound armed). Verify by setting up one station tablet using only the guide → moved to hardware-acceptance
 
 ## 10. Load and failure tests (design D11)
 
 - [x] 10.1 Add a fake ePOS printer to the test sources that can answer slowly, drop the connection before or after reading the request, and report paper end or cover open. Verify with tests that each fault maps to `pending`, `unclear`, or the expected status
 - [x] 10.2 Add a load test with 15 simulated waiters at festival peak rate against two fake printers with injected faults. Verify that every order has exactly one ticket per printer that is `printed` or `unclear`, no ticket is delivered twice by the worker, and queues recover after each outage
-- [ ] 10.3 Run backend tests, `flutter analyze`, and `flutter test`, and verify that everything passes
-- [ ] 10.4 On site with real printers and station tablets: send orders from several waiters, pull paper, open the cover, unplug a printer's network, switch one printer to WiFi and drop it while printing, and restart the backend during printing. Verify that no ticket is lost or printed twice unnoticed, and record the results in `docs/acceptance.md`
+- [ ] 10.3 Run backend tests, `flutter analyze`, and `flutter test`, and verify that everything passes → moved to hardware-acceptance
+- [ ] 10.4 On site with real printers and station tablets: send orders from several waiters, pull paper, open the cover, unplug a printer's network, switch one printer to WiFi and drop it while printing, and restart the backend during printing. Verify that no ticket is lost or printed twice unnoticed, and record the results in `docs/acceptance.md` → moved to hardware-acceptance
 
 ## Workflow follow-up
 

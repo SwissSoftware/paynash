@@ -64,8 +64,8 @@ Orders are no longer kept open per table: the waiter builds the order on the dev
 - [x] 5.5 Handle a missing printer for a type: the job fails immediately with "no printer configured" and the order is saved anyway. Verify with a test
 - [x] 5.6 Add endpoints for test print and reprint (new job with the REPRINT flag) and expose ticket status per order for the app. Verify with tests
 - [x] 5.7 Build the app UI: show print status per order in the order history, a failed-ticket warning with the error, and a reprint button. Build the admin UI: printer configuration and test print. Verify through the UI with a fake printer
-- [ ] 5.8 Run a hardware test with a real Epson TM-m30III: enable ePOS-Print, run a test print, check umlauts (ä, ö, ü, é), the cut, and readability; test paper end and cover open. Verify with photos/notes of the test tickets in `docs/printing.md`, and adjust the code page/transliteration if needed
-- [ ] 5.9 Document printer setup (static IP, enable ePOS, device ID) in `docs/printing.md` and verify that the steps can be reproduced on a reset printer
+- [ ] 5.8 Run a hardware test with a real Epson TM-m30III: enable ePOS-Print, run a test print, check umlauts (ä, ö, ü, é), the cut, and readability; test paper end and cover open. Verify with photos/notes of the test tickets in `docs/printing.md`, and adjust the code page/transliteration if needed → moved to hardware-acceptance
+- [ ] 5.9 Document printer setup (static IP, enable ePOS, device ID) in `docs/printing.md` and verify that the steps can be reproduced on a reset printer → moved to hardware-acceptance
 
 ## 6. Payment (removed)
 
@@ -81,20 +81,20 @@ Removed: there is no payment in the app (see proposal). The section number is ke
 
 - [x] 8.1 Create a production Docker Compose setup (backend, PostgreSQL, image volume, restart policies, HTTPS with a local hostname/certificate). Verify that `docker compose up` on a clean machine passes the health check over HTTPS
 - [x] 8.2 Set up a daily DB and image backup with documented restore. Verify with a restore test on a second instance
-- [ ] 8.3 Write the operations guide `docs/operations.md` (installation, first admin, printer setup, update, backup/restore, troubleshooting) and verify that a second person can install it using only the guide
+- [ ] 8.3 Write the operations guide `docs/operations.md` (installation, first admin, printer setup, update, backup/restore, troubleshooting) and verify that a second person can install it using only the guide → moved to hardware-acceptance
 
 ## 9. End-to-end integration
 
-- [ ] 9.1 Run the full flow on site with the web UI and real printers: admin creates items with images, two waiters in two browser sessions take a mixed order for the same table, the bar printer receives only drinks and the kitchen printer only food, a follow-up order for the same table is sent and printed, both orders appear in the order history, an admin cancels a line and the STORNO ticket is printed, and the CSV export contains all lines correctly. Record the result in `docs/acceptance.md`
-- [ ] 9.2 Run the failure test on site: unplug the kitchen printer, send an order, see the failed status in the app, reconnect it, and reprint with "REPRINT". Verify that no ticket is lost or duplicated, and record the result in `docs/acceptance.md`
+- [ ] 9.1 Run the full flow on site with the web UI and real printers: admin creates items with images, two waiters in two browser sessions take a mixed order for the same table, the bar printer receives only drinks and the kitchen printer only food, a follow-up order for the same table is sent and printed, both orders appear in the order history, an admin cancels a line and the STORNO ticket is printed, and the CSV export contains all lines correctly. Record the result in `docs/acceptance.md` → moved to hardware-acceptance
+- [ ] 9.2 Run the failure test on site: unplug the kitchen printer, send an order, see the failed status in the app, reconnect it, and reprint with "REPRINT". Verify that no ticket is lost or duplicated, and record the result in `docs/acceptance.md` → moved to hardware-acceptance
 
 ## 10. Later: mobile apps (Android and iOS)
 
-- [ ] 10.1 Add the Android and iOS targets to the Flutter app with a configurable backend URL. Verify that the app starts on an Android emulator and an iOS simulator against the HTTPS backend from 8.1
-- [ ] 10.2 Implement the token storage interface with secure storage (Keychain/Keystore). Verify login/logout manually on Android and iOS
-- [ ] 10.3 Check the menu tiles, order screen, order history, and print status on both platforms, including the image cache. Verify manually on both platforms that an order sent on one device appears in the history on the other (≤ 5 s)
-- [ ] 10.4 Configure the iOS build (NSLocalNetworkUsageDescription, ATS-compatible HTTPS) and Android release signing, and build for the distribution channel (TestFlight/internal track). Verify that the app installs from that channel on a real device
-- [ ] 10.5 Repeat the on-site flow from 9.1 with a waiter on Android and a waiter on iOS, and record the result in `docs/acceptance.md`
+- [ ] 10.1 Add the Android and iOS targets to the Flutter app with a configurable backend URL. Verify that the app starts on an Android emulator and an iOS simulator against the HTTPS backend from 8.1 → moved to hardware-acceptance
+- [ ] 10.2 Implement the token storage interface with secure storage (Keychain/Keystore). Verify login/logout manually on Android and iOS → moved to hardware-acceptance
+- [ ] 10.3 Check the menu tiles, order screen, order history, and print status on both platforms, including the image cache. Verify manually on both platforms that an order sent on one device appears in the history on the other (≤ 5 s) → moved to hardware-acceptance
+- [ ] 10.4 Configure the iOS build (NSLocalNetworkUsageDescription, ATS-compatible HTTPS) and Android release signing, and build for the distribution channel (TestFlight/internal track). Verify that the app installs from that channel on a real device → moved to hardware-acceptance
+- [ ] 10.5 Repeat the on-site flow from 9.1 with a waiter on Android and a waiter on iOS, and record the result in `docs/acceptance.md` → moved to hardware-acceptance
 
 ## Workflow follow-up
 

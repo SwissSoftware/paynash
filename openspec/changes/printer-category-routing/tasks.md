@@ -44,7 +44,7 @@
 
 ## 8. Integration check
 
-- [ ] 8.1 Run `./mvnw verify` and `flutter analyze && flutter test`, then manually check with the docker setup: in salon mode add a receipt printer and issue an invoice; in event mode assign a category to two printers and send, cancel and reprint an order. Verify that the tickets appear on the expected printers or stations
+- [ ] 8.1 Run `./mvnw verify` and `flutter analyze && flutter test`, then manually check with the docker setup: in salon mode add a receipt printer and issue an invoice; in event mode assign a category to two printers and send, cancel and reprint an order. Verify that the tickets appear on the expected printers or stations → moved to hardware-acceptance
 
 ## Workflow follow-up
 
