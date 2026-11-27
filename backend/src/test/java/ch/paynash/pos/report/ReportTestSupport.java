@@ -83,7 +83,16 @@ abstract class ReportTestSupport extends IntegrationTest {
 		return jdbc.sql("SELECT number FROM customer WHERE id = ?").param(customerId).query(Integer.class).single();
 	}
 
-	private void invoice(int seq, String orderDay, String day, long customer, String status, String method,
+	/** An invoice of a counter sale without customer (change invoices-without-customer). */
+	protected void invoiceWithoutCustomer(int seq, String day, Line... lines) {
+		invoice(seq, day, day, null, "issued", "cash", false, lines);
+	}
+
+	protected static Line item(String name, int qty, int unitRappen) {
+		return new Line(name, qty, unitRappen);
+	}
+
+	private void invoice(int seq, String orderDay, String day, Long customer, String status, String method,
 			boolean vat, Line... lines) {
 		long order = jdbc.sql("""
 				INSERT INTO orders (customer_id, sent_by, sent_at) VALUES (?, ?, (?::date + time '10:00') AT TIME ZONE
@@ -95,8 +104,8 @@ abstract class ReportTestSupport extends IntegrationTest {
 		long invoice = jdbc.sql("""
 				INSERT INTO invoice (number, year, seq, order_id, customer_id, invoice_date, issued_at, issued_by,
 				                     business, customer, vat_enabled, vat_uid, total_rappen, status, cancel_reason)
-				VALUES (?, 2026, ?, ?, ?, ?::date, now(), ?, '{}', '{}', ?, ?, ?, ?, ?) RETURNING id""")
-			.params("2026-%04d".formatted(seq), seq, order, customer, day, staffId, vat,
+				VALUES (?, 2026, ?, ?, ?, ?::date, now(), ?, '{}', ?::jsonb, ?, ?, ?, ?, ?) RETURNING id""")
+			.params("2026-%04d".formatted(seq), seq, order, customer, day, staffId, customer == null ? null : "{}", vat,
 					vat ? "CHE-116.281.710 MWST" : null, total, status, "cancelled".equals(status) ? "duplicate" : null)
 			.query(Long.class)
 			.single();

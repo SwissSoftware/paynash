@@ -24,7 +24,7 @@ class FakeSalon {
 
   static const featureKeys = ['tables', 'stations', 'customers', 'invoices', 'sales-report'];
 
-  static const _requires = {'invoices': 'customers', 'sales-report': 'invoices'};
+  static const _requires = {'sales-report': 'invoices'};
 
   Map<String, dynamic> settings = {
     'features': {for (final f in featureKeys) f: f == 'tables' || f == 'stations'},
@@ -334,13 +334,16 @@ class FakeSalon {
       ...i,
       'receipts': i['receipts'] ?? [if (i['receipt'] != null) i['receipt']],
       'business': {'name': settings['businessName']},
-      'customer': {
-        'number': c?['number'] ?? 0,
-        'name': i['customerName'],
-        'street': c?['street'],
-        'postalCode': c?['postalCode'],
-        'city': c?['city'],
-      },
+      // Null for an invoice without customer (change invoices-without-customer).
+      'customer': i['customerId'] == null
+          ? null
+          : {
+              'number': c?['number'] ?? 0,
+              'name': i['customerName'],
+              'street': c?['street'],
+              'postalCode': c?['postalCode'],
+              'city': c?['city'],
+            },
       'payment': (i['paymentHistory'] as List).cast<Map<String, dynamic>>().where(
         (p) => p['removedBy'] == null,
       ).firstOrNull,
@@ -367,12 +370,12 @@ class FakeSalon {
               (q['status'] == null || i['status'] == q['status']) &&
               (query.isEmpty ||
                   (i['number'] as String).toLowerCase().contains(query) ||
-                  (i['customerName'] as String).toLowerCase().contains(query)))
+                  ((i['customerName'] as String?) ?? '').toLowerCase().contains(query)))
             {
               'id': i['id'],
               'number': i['number'],
               'date': i['date'],
-              'customerNumber': _invoiceJson(i)['customer']['number'],
+              'customerNumber': _invoiceJson(i)['customer']?['number'],
               'customerName': i['customerName'],
               'total': i['total'],
               'status': i['status'],
@@ -457,6 +460,14 @@ class FakeSalon {
       (l) => l['status'] != 'cancelled',
     );
     final total = lines.fold(0, (sum, l) => sum + FakeBackend._lineTotal(l));
+    // Small-amount limit without customer, as the backend (spec invoicing).
+    if (o['customerId'] == null && total > 40000) {
+      return FakeBackend._json(409, {
+        'status': 409,
+        'detail': 'Invoices above CHF 400.00 need a customer',
+        'code': 'customer_required',
+      });
+    }
     final number = '2026-${(invoices.length + 1).toString().padLeft(4, '0')}';
     final i = {
       'id': _nextInvoiceId++,

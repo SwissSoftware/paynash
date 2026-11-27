@@ -35,6 +35,20 @@ class InvoicePdfTest extends InvoiceTestSupport {
 			.doesNotContain("STORNIERT");
 	}
 
+	/** Change invoices-without-customer, design D3: no recipient and no customer number. */
+	@Test
+	void pdfWithoutCustomerHasNoRecipient() throws Exception {
+		settingsService.applyTemplate(ch.paynash.pos.settings.Template.COUNTER);
+		settingsService.updateFeatures(java.util.EnumSet.of(ch.paynash.pos.settings.Feature.INVOICES));
+		long order = id(postJson(staff, "/orders", "{\"lines\":[" + line(tint, 2) + "]}")
+			.andExpect(status().isCreated()));
+		long invoice = issued(order);
+		String text = new PdfTextExtractor(new PdfReader(download(invoice, "Rechnung-2026-0001.pdf")))
+			.getTextFromPage(1);
+		assertThat(text).contains("Rechnung 2026-0001", "Kosmetik Aurora", "Eyebrow tint", "50.00", "Total CHF")
+			.doesNotContain("Kunde Nr.", "Laura Meier");
+	}
+
 	@Test
 	void cancelledInvoiceIsMarkedStorniert() throws Exception {
 		long invoice = issued(confirm(laura, line(facial, 1)));

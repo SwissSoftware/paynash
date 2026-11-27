@@ -107,7 +107,8 @@ public class InvoiceController {
 
 	}
 
-	public record InvoiceSummaryView(long id, String number, LocalDate date, int customerNumber, String customerName,
+	/** Customer number and name are null for an invoice without customer. */
+	public record InvoiceSummaryView(long id, String number, LocalDate date, Integer customerNumber, String customerName,
 			String total, Invoice.Status status) {
 	}
 

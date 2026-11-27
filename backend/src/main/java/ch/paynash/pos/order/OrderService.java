@@ -65,7 +65,7 @@ public class OrderService {
 	}
 
 	/** An order with everything the order history shows, including its tickets. */
-	/** {@code invoice} is the invoice an order with a customer shows, or null (spec order-taking). */
+	/** {@code invoice} is the invoice the order shows, or null (spec order-taking). */
 	public record OrderDetail(Order order, List<OrderLine> lines, List<PrintJob> tickets,
 			OrderRepository.InvoiceRef invoice) {
 
@@ -89,7 +89,7 @@ public class OrderService {
 	public OrderDetail detail(long orderId) {
 		Order order = orders.find(orderId).orElseThrow(() -> ApiException.notFound("Order"));
 		return new OrderDetail(order, orders.findLines(orderId), printJobs.findByOrder(orderId),
-				order.customerId() == null ? null : orders.shownInvoice(orderId).orElse(null));
+				orders.shownInvoice(orderId).orElse(null));
 	}
 
 	// --- sending
@@ -217,13 +217,12 @@ public class OrderService {
 				.with("orderStatus", order.status().dbValue());
 		}
 		// An invoice is final, so its order stays as invoiced (spec invoicing, "Invoices are final"). Issuing takes
-		// the same order lock, so the two cannot overlap.
-		if (order.customerId() != null) {
-			orders.shownInvoice(orderId).filter(i -> !"cancelled".equals(i.status())).ifPresent(i -> {
-				throw ApiException.conflict("The order has invoice " + i.number() + ", cancel the invoice first")
-					.with("invoiceId", i.id());
-			});
-		}
+		// the same order lock, so the two cannot overlap. Applies with or without customer (change
+		// invoices-without-customer, design D5).
+		orders.shownInvoice(orderId).filter(i -> !"cancelled".equals(i.status())).ifPresent(i -> {
+			throw ApiException.conflict("The order has invoice " + i.number() + ", cancel the invoice first")
+				.with("invoiceId", i.id());
+		});
 		return order;
 	}
 

@@ -145,7 +145,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                     for (final i in invoices)
                       ListTile(
                         key: Key('invoice-${i.number}'),
-                        title: Text('${i.number} · ${i.customerName}'),
+                        title: Text('${i.number} · ${i.customerLabel}'),
                         subtitle: Text(swissDate(i.date)),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -166,8 +166,18 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
 }
 
 const _months = [
-  'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
-  'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 /// "November 2026".

@@ -59,7 +59,7 @@ public class OrderController {
 	}
 
 	/**
-	 * The invoice of an order with a customer: the one that is not cancelled, else the latest cancelled one; null while the
+	 * The invoice of an order: the one that is not cancelled, else the latest cancelled one; null while the
 	 * order is not invoiced. {@code status} is open, paid, or cancelled.
 	 */
 	public record InvoiceRefView(long id, String number, String status) {

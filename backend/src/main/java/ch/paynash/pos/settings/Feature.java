@@ -17,7 +17,7 @@ public enum Feature {
 
 	CUSTOMERS("customers", "Customers are switched off", null),
 
-	INVOICES("invoices", "Invoices are switched off", CUSTOMERS),
+	INVOICES("invoices", "Invoices are switched off", null),
 
 	SALES_REPORT("sales-report", "The sales report is switched off", INVOICES);
 

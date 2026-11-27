@@ -14,7 +14,10 @@ As admin, open **Settings** and tap under **Business template**:
   categories assigned to them.
 - **Restaurant**: like Event, plus **Customers**, **Invoices**, and **Sales report**. A waiter can add a customer to
   a table order (for example a company that wants an invoice) and send and invoice it in one step. Orders without a
-  customer work exactly as at an event.
+  customer work exactly as at an event; guests can still get a receipt without recipient up to CHF 400.00 (**Send
+  and invoice**, or **Issue invoice** in the history; change `invoices-without-customer`).
+
+An event can switch on **Invoices** and **Sales report** under **Features** as well, also without **Customers**.
 
 Both templates name waiters **Waiter**, menu items **Menu**, and sending **Send**. Installations that ran in event
 mode before this version start with the Event template.

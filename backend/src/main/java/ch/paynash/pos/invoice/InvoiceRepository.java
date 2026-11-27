@@ -55,7 +55,7 @@ public class InvoiceRepository {
 
 	// --- writing
 
-	public record NewInvoice(String number, int year, int seq, long orderId, long customerId, LocalDate invoiceDate,
+	public record NewInvoice(String number, int year, int seq, long orderId, Long customerId, LocalDate invoiceDate,
 			Instant issuedAt, long issuedBy, Invoice.Business business, Invoice.CustomerCopy customer,
 			boolean vatEnabled, String vatUid, long totalRappen) {
 	}
@@ -71,7 +71,8 @@ public class InvoiceRepository {
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?) RETURNING id""")
 			.params(i.number(), i.year(), i.seq(), i.orderId(), i.customerId(), i.invoiceDate(),
 					Timestamp.from(i.issuedAt()), i.issuedBy(), json.writeValueAsString(i.business()),
-					json.writeValueAsString(i.customer()), i.vatEnabled(), i.vatUid(), i.totalRappen())
+					i.customer() == null ? null : json.writeValueAsString(i.customer()), i.vatEnabled(), i.vatUid(),
+					i.totalRappen())
 			.query(Long.class)
 			.single();
 		for (NewLine l : lines) {
@@ -141,7 +142,8 @@ public class InvoiceRepository {
 	}
 
 	/** One row of the invoice list. */
-	public record Summary(long id, String number, LocalDate invoiceDate, int customerNumber, String customerName,
+	/** {@code customerNumber} and {@code customerName} are null for an invoice without customer. */
+	public record Summary(long id, String number, LocalDate invoiceDate, Integer customerNumber, String customerName,
 			long totalRappen, Invoice.Status status) {
 	}
 
@@ -171,7 +173,7 @@ public class InvoiceRepository {
 				String.join(" AND ", where)))
 			.params(params)
 			.query((rs, n) -> new Summary(rs.getLong("id"), rs.getString("number"),
-					rs.getObject("invoice_date", LocalDate.class), rs.getInt("customer_number"),
+					rs.getObject("invoice_date", LocalDate.class), rs.getObject("customer_number", Integer.class),
 					rs.getString("customer_name"), rs.getLong("total_rappen"),
 					Invoice.Status.valueOf(rs.getString("status").toUpperCase())))
 			.list();
@@ -209,10 +211,12 @@ public class InvoiceRepository {
 	}
 
 	private Invoice map(ResultSet rs, int row) throws SQLException {
-		return new Invoice(rs.getLong("id"), rs.getString("number"), rs.getLong("order_id"), rs.getLong("customer_id"),
+		String customer = rs.getString("customer");
+		return new Invoice(rs.getLong("id"), rs.getString("number"), rs.getLong("order_id"),
+				rs.getObject("customer_id", Long.class),
 				rs.getObject("invoice_date", LocalDate.class), rs.getTimestamp("issued_at").toInstant(),
 				rs.getString("issued_by_name"), json.readValue(rs.getString("business"), Invoice.Business.class),
-				json.readValue(rs.getString("customer"), Invoice.CustomerCopy.class), rs.getBoolean("vat_enabled"),
+				customer == null ? null : json.readValue(customer, Invoice.CustomerCopy.class), rs.getBoolean("vat_enabled"),
 				rs.getString("vat_uid"), rs.getLong("total_rappen"),
 				Invoice.Status.valueOf(rs.getString("status").toUpperCase()), instant(rs, "cancelled_at"),
 				rs.getString("cancelled_by_name"), rs.getString("cancel_reason"), List.of(), List.of(), List.of());

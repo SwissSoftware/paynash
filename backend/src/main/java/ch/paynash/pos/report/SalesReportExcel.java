@@ -100,7 +100,7 @@ public class SalesReportExcel {
 		int i = 1;
 		for (var c : r.customers()) {
 			Row row = sh.createRow(i++);
-			row.createCell(0).setCellValue(c.number());
+			number(row.createCell(0), c.number());
 			row.createCell(1).setCellValue(c.name());
 			row.createCell(2).setCellValue(c.invoiceCount());
 			amount(row, 3, c.revenueRappen(), s);
@@ -115,7 +115,7 @@ public class SalesReportExcel {
 			Row row = sh.createRow(i++);
 			row.createCell(0).setCellValue(x.number());
 			date(row, 1, x.date(), s);
-			row.createCell(2).setCellValue(x.customerNumber());
+			number(row.createCell(2), x.customerNumber());
 			row.createCell(3).setCellValue(x.customerName());
 			amount(row, 4, x.totalRappen(), s);
 			amount(row, 5, x.vatRappen(), s);
@@ -137,7 +137,7 @@ public class SalesReportExcel {
 			Row row = sh.createRow(i++);
 			row.createCell(0).setCellValue(l.invoiceNumber());
 			date(row, 1, l.date(), s);
-			row.createCell(2).setCellValue(l.customerNumber());
+			number(row.createCell(2), l.customerNumber());
 			row.createCell(3).setCellValue(l.customerName());
 			row.createCell(4).setCellValue(l.service());
 			row.createCell(5).setCellValue(l.category());
@@ -151,6 +151,13 @@ public class SalesReportExcel {
 	}
 
 	/** Header titles follow the column widths (in characters): {@code header(sh, s, 14, 16, "A", "B")}. */
+	/** An empty cell for an invoice without customer (change invoices-without-customer, design D4). */
+	private static void number(org.apache.poi.ss.usermodel.Cell cell, Integer value) {
+		if (value != null) {
+			cell.setCellValue(value);
+		}
+	}
+
 	private static void header(Sheet sh, Styles s, Object... widthsThenTitles) {
 		List<Object> all = List.of(widthsThenTitles);
 		int columns = all.size() / 2;

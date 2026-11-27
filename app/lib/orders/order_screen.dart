@@ -89,7 +89,11 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
   bool get _customerRequired => _withCustomers && !widget.tables;
 
   /// Whether the main button also issues the invoice.
+  /// Whether the main button also issues the invoice: with a customer (or where one is required). Without
+  /// customer, invoicing is the secondary action (change invoices-without-customer, design D6).
   bool get _invoiceOnSend => widget.invoiceApi != null && (_customerRequired || _customer != null);
+
+  bool get _invoicing => widget.invoiceApi != null;
 
   /// The customer of the order being built, while customers are on.
   CustomerData? _customer;
@@ -237,7 +241,7 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
           : customer != null
           ? 'Order for ${customer.name}'
           : 'Order';
-      if (!invoice || customer == null) {
+      if (!invoice) {
         _message('$what ${_pastTense(widget.sendTerm)}');
         return;
       }
@@ -351,7 +355,8 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
             : null,
         sendTerm: widget.sendTerm,
         invoiceOnSend: _invoiceOnSend,
-        onSendOnly: _invoiceOnSend ? () => _send(invoice: false) : null,
+        // The other choice next to the main button: send only, or send and invoice.
+        onSecondary: _invoicing ? () => _send(invoice: !_invoiceOnSend) : null,
         tableError: _tableError,
         sendError: _sendError,
         lines: _lines,
@@ -415,7 +420,7 @@ class _DraftPanel extends StatelessWidget {
     required this.sendTerm,
     required this.invoiceOnSend,
     this.customer,
-    this.onSendOnly,
+    this.onSecondary,
   });
 
   /// Whether the order needs a table (feature `tables`).
@@ -430,8 +435,9 @@ class _DraftPanel extends StatelessWidget {
   /// The main button also issues the invoice.
   final bool invoiceOnSend;
 
-  /// While [invoiceOnSend]: sends without issuing the invoice.
-  final VoidCallback? onSendOnly;
+  /// While invoices are on: the other choice, "send only" when the main button
+  /// invoices, otherwise "send and invoice".
+  final VoidCallback? onSecondary;
 
   /// Phone layout: the panel only takes the height it needs, and the table
   /// field and the table chips share one row.
@@ -579,13 +585,15 @@ class _DraftPanel extends StatelessWidget {
             ),
           ),
         ),
-        if (onSendOnly != null)
+        if (onSecondary != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: TextButton(
               key: const Key('order-confirm-only'),
-              onPressed: !offline && !sending && lines.isNotEmpty ? onSendOnly : null,
-              child: Text('$sendTerm only, invoice later'),
+              onPressed: !offline && !sending && lines.isNotEmpty ? onSecondary : null,
+              child: Text(
+                invoiceOnSend ? '$sendTerm only, invoice later' : '$sendTerm and invoice',
+              ),
             ),
           ),
       ],

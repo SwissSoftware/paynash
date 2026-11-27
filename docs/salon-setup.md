@@ -23,8 +23,11 @@ The template also sets the **Terms**: waiters are called **Staff**, menu items *
 **Confirm**. You can rename them under **Terms**; the stored roles stay the same.
 
 You can adjust single features later under **Features**, for example switch on **Tables** for a salon with a
-café corner. Switching a feature off hides its functions but keeps all data. Invoices need customers, and the sales
-report needs invoices, so those switches only work in that order.
+café corner. Switching a feature off hides its functions but keeps all data. The sales report needs invoices, so it
+can only be switched on while invoices are on.
+
+Walk-in guests without a customer record can also get an invoice (receipt without recipient) up to CHF 400.00; above
+that, Paynash asks for a customer (change `invoices-without-customer`). In the report they appear as **Ohne Kunde**.
 
 ## 3. Business details and VAT
 

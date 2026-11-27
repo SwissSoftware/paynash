@@ -106,13 +106,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with Polling {
   Future<void> _show(int orderId) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            OrderDetailScreen(
-              orderId: orderId,
-              orderApi: widget.orderApi,
-              isAdmin: widget.isAdmin,
-              invoiceApi: widget.invoiceApi,
-            ),
+        builder: (_) => OrderDetailScreen(
+          orderId: orderId,
+          orderApi: widget.orderApi,
+          isAdmin: widget.isAdmin,
+          invoiceApi: widget.invoiceApi,
+        ),
       ),
     );
     await poll();
@@ -179,8 +178,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with Polling {
               : ListView.separated(
                   itemCount: orders.length,
                   separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, i) =>
-                      _OrderTile(order: orders[i], onTap: () => _show(orders[i].id)),
+                  itemBuilder: (context, i) => _OrderTile(
+                    order: orders[i],
+                    invoices: widget.invoiceApi != null,
+                    onTap: () => _show(orders[i].id),
+                  ),
                 ),
         ),
       ],
@@ -189,9 +191,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with Polling {
 }
 
 class _OrderTile extends StatelessWidget {
-  const _OrderTile({required this.order, required this.onTap});
+  const _OrderTile({required this.order, required this.invoices, required this.onTap});
 
   final OrderSummary order;
+
+  /// While invoices are on, every order shows its invoice status (spec order-taking).
+  final bool invoices;
   final VoidCallback onTap;
 
   @override
@@ -209,8 +214,7 @@ class _OrderTile extends StatelessWidget {
         order.printStatus == TicketStatus.failed || order.printStatus == TicketStatus.unclear;
     final subtitle = [
       '${formatTime(order.sentAt)} · ${order.waiter}${voided ? ' · Voided' : ''}',
-      // Salon orders show their invoice instead of tickets (spec order-taking).
-      if (order.customerName != null && !voided) order.invoice?.label ?? 'not invoiced',
+      if ((invoices || order.invoice != null) && !voided) order.invoice?.label ?? 'not invoiced',
       ?problem,
     ];
     return ListTile(

@@ -229,13 +229,44 @@ class UpgradeMigrationTest {
 		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
 	}
 
+	/** Change invoices-without-customer, design D1: existing invoices stay, new ones may have no customer. */
 	@Test
-	void businessFeaturesRejectInvoicesWithoutCustomers() {
+	void invoicesWithoutCustomerMigrationKeepsInvoicesAndAllowsNoCustomer() {
 		jdbc.sql("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE").update();
-		flyway(null).migrate();
-		org.assertj.core.api.Assertions
-			.assertThatThrownBy(() -> in(SCHEMA, "UPDATE installation_settings SET feature_invoices = TRUE;"))
-			.hasMessageContaining("installation_settings_invoices_need_customers");
+		flyway("16").migrate();
+		in(SCHEMA, """
+				UPDATE installation_settings SET template = 'salon', feature_tables = FALSE, feature_stations = FALSE,
+				    feature_customers = TRUE, feature_invoices = TRUE, feature_sales_report = TRUE;
+				INSERT INTO staff (id, username, display_name, role, pin_hash) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'anna', 'Anna', 'waiter', 'h');
+				INSERT INTO customer (id, first_name, last_name) OVERRIDING SYSTEM VALUE VALUES (1, 'Laura', 'Meier');
+				INSERT INTO orders (id, customer_id, sent_by, sent_at) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 1, 1, now()), (2, NULL, 1, now());
+				INSERT INTO invoice (number, year, seq, order_id, customer_id, invoice_date, issued_at, issued_by,
+				                     business, customer, vat_enabled, total_rappen)
+				    VALUES ('2026-0001', 2026, 1, 1, 1, DATE '2026-11-27', now(), 1, '{}', '{"name":"Laura Meier"}',
+				            false, 12000);
+				""");
+
+		var result = flyway(null).migrate();
+
+		assertThat(result.success).isTrue();
+		assertThat(one("SELECT customer_id || ':' || (customer->>'name') FROM invoice")).isEqualTo("1:Laura Meier");
+		in(SCHEMA, """
+				INSERT INTO invoice (number, year, seq, order_id, customer_id, invoice_date, issued_at, issued_by,
+				                     business, customer, vat_enabled, total_rappen)
+				    VALUES ('2026-0002', 2026, 2, 2, NULL, DATE '2026-11-27', now(), 1, '{}', NULL, false, 900);
+				UPDATE installation_settings SET feature_customers = FALSE;
+				""");
+		assertThat(rows("SELECT count(*)::text FROM invoice WHERE customer_id IS NULL")).containsExactly("1");
+		assertThat(one("SELECT feature_invoices || ':' || feature_customers FROM installation_settings"))
+			.isEqualTo("true:false");
+		// A copy without customer id (or the other way round) is still rejected.
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> in(SCHEMA, """
+				INSERT INTO invoice (number, year, seq, order_id, customer_id, invoice_date, issued_at, issued_by,
+				                     business, customer, vat_enabled, total_rappen)
+				    VALUES ('2026-0003', 2026, 3, 2, NULL, DATE '2026-11-27', now(), 1, '{}', '{"name":"x"}', false, 1);
+				""")).hasMessageContaining("invoice_customer_copy_check");
 		jdbc.sql("SET search_path TO public").update();
 		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
 	}

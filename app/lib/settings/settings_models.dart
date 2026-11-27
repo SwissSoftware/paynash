@@ -15,7 +15,6 @@ enum Feature {
   /// The feature this one cannot work without (spec business-features,
   /// "Feature dependencies").
   Feature? get requires => switch (this) {
-    Feature.invoices => Feature.customers,
     Feature.salesReport => Feature.invoices,
     _ => null,
   };

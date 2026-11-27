@@ -7,7 +7,12 @@ import 'support/recording_file_saver.dart';
 /// A salon with three invoices of November 2026 and one of October:
 /// 2026-0001 Laura (October), 2026-0002 Laura open, 2026-0003 Peter paid,
 /// 2026-0004 Peter cancelled.
-Future<AppHarness> start(WidgetTester tester, {bool admin = false, bool printer = true}) async {
+Future<AppHarness> start(
+  WidgetTester tester, {
+  bool admin = false,
+  bool printer = true,
+  bool counterSale = false,
+}) async {
   final app = AppHarness(tester);
   final b = app.backend;
   b.addStaff('anna', 'waiter', '4711', displayName: 'Anna');
@@ -16,7 +21,7 @@ Future<AppHarness> start(WidgetTester tester, {bool admin = false, bool printer 
   if (printer) b.addPrinter('Counter', tickets: false, receipts: true);
   final laura = b.salon.addCustomer('Laura', 'Meier');
   final peter = b.salon.addCustomer('Peter', 'Meili');
-  Map<String, dynamic> invoice(int id, String number, int customer, String name, String date,
+  Map<String, dynamic> invoice(int id, String number, int? customer, String? name, String date,
           String status) =>
       {
         'id': id,
@@ -48,6 +53,8 @@ Future<AppHarness> start(WidgetTester tester, {bool admin = false, bool printer 
     invoice(2, '2026-0002', laura, 'Laura Meier', '2026-11-02', 'open'),
     invoice(3, '2026-0003', peter, 'Peter Meili', '2026-11-05', 'paid'),
     invoice(4, '2026-0004', peter, 'Peter Meili', '2026-11-06', 'cancelled'),
+    // A counter sale without customer (change invoices-without-customer).
+    if (counterSale) invoice(5, '2026-0005', null, null, '2026-11-07', 'open'),
   ]);
   await app.start();
   await app.login(admin ? 'boss' : 'anna', admin ? '1111' : '4711');
@@ -212,6 +219,19 @@ void main() {
       expect(saver.saved.single.name, 'Rechnung-2026-0002.pdf');
       expect(saver.saved.single.mimeType, 'application/pdf');
       expect(find.text('Saved Rechnung-2026-0002.pdf'), findsOneWidget);
+    });
+
+    testWidgets('an invoice without customer shows "Ohne Kunde" and no recipient', (tester) async {
+      await start(tester, counterSale: true);
+      await goToNovember(tester);
+      expect(
+        find.descendant(of: listed('2026-0005'), matching: find.text('2026-0005 · Ohne Kunde')),
+        findsOneWidget,
+      );
+      await openInvoiceTile(tester, '2026-0005');
+      expect(find.byKey(const Key('invoice-without-customer')), findsOneWidget);
+      expect(find.textContaining('Customer no.'), findsNothing);
+      expect(find.text('120.00'), findsWidgets);
     });
   });
 }

@@ -97,9 +97,8 @@ class _ReportScreenState extends State<ReportScreen> {
     }
   }
 
-  String get _periodLabel => _monthMode
-      ? monthLabel(_from)
-      : '${swissDate(_iso(_from))} – ${swissDate(_iso(_to))}';
+  String get _periodLabel =>
+      _monthMode ? monthLabel(_from) : '${swissDate(_iso(_from))} – ${swissDate(_iso(_to))}';
 
   static String _iso(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -193,7 +192,11 @@ class _ReportScreenState extends State<ReportScreen> {
                         ListTile(
                           dense: true,
                           title: Text(c.name),
-                          subtitle: Text('No. ${c.number} · ${c.invoiceCount} invoices'),
+                          subtitle: Text(
+                            c.number == null
+                                ? '${c.invoiceCount} invoices'
+                                : 'No. ${c.number} · ${c.invoiceCount} invoices',
+                          ),
                           trailing: Text('CHF ${c.revenue}'),
                         ),
                     ],
@@ -226,9 +229,9 @@ class _SummaryCard extends StatelessWidget {
         ],
       ),
     );
-    final paidBy = summary.byMethod.where((m) => m.amount != '0.00').map(
-      (m) => '${PaymentMethodJson.parse(m.method).label} ${m.amount}',
-    );
+    final paidBy = summary.byMethod
+        .where((m) => m.amount != '0.00')
+        .map((m) => '${PaymentMethodJson.parse(m.method).label} ${m.amount}');
     return Card(
       key: const Key('report-summary'),
       margin: const EdgeInsets.all(16),
@@ -245,9 +248,13 @@ class _SummaryCard extends StatelessWidget {
                 figure('Open CHF', summary.open, 'report-open'),
               ],
             ),
-            if (paidBy.isNotEmpty) Text('Paid by: ${paidBy.join(' · ')}', key: const Key('report-methods')),
+            if (paidBy.isNotEmpty)
+              Text('Paid by: ${paidBy.join(' · ')}', key: const Key('report-methods')),
             for (final v in summary.vat)
-              Text('VAT ${v.rate} %: ${v.vat} (net ${v.net}, gross ${v.gross})', style: text.bodySmall),
+              Text(
+                'VAT ${v.rate} %: ${v.vat} (net ${v.net}, gross ${v.gross})',
+                style: text.bodySmall,
+              ),
           ],
         ),
       ),

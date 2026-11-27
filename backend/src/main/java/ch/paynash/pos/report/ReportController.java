@@ -52,7 +52,8 @@ public class ReportController {
 	public record ServiceView(String name, int quantity, String revenue) {
 	}
 
-	public record CustomerView(int number, String name, int invoiceCount, String revenue) {
+	/** {@code number} is null for the entry "Ohne Kunde". */
+	public record CustomerView(Integer number, String name, int invoiceCount, String revenue) {
 	}
 
 	public record ReportView(LocalDate from, LocalDate to, SummaryView summary, List<DayView> days,

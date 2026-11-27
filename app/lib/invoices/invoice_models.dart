@@ -34,8 +34,8 @@ class InvoiceSummary {
     id: json['id'] as int,
     number: json['number'] as String,
     date: json['date'] as String,
-    customerNumber: json['customerNumber'] as int,
-    customerName: json['customerName'] as String,
+    customerNumber: json['customerNumber'] as int?,
+    customerName: json['customerName'] as String?,
     total: json['total'] as String,
     status: InvoiceStatus.values.byName(json['status'] as String),
   );
@@ -43,11 +43,19 @@ class InvoiceSummary {
   final int id;
   final String number;
   final String date;
-  final int customerNumber;
-  final String customerName;
+
+  /// Null for an invoice without customer (change invoices-without-customer).
+  final int? customerNumber;
+  final String? customerName;
   final String total;
   final InvoiceStatus status;
+
+  /// The customer's name, or "Ohne Kunde".
+  String get customerLabel => customerName ?? withoutCustomer;
 }
+
+/// Shown instead of a customer for invoices without customer (spec invoicing).
+const withoutCustomer = 'Ohne Kunde';
 
 class InvoiceLine {
   InvoiceLine(this.qty, this.name, this.unitPrice, this.vatRate, this.amount, this.note);
@@ -182,8 +190,8 @@ class InvoiceData {
   });
 
   factory InvoiceData.fromJson(Map<String, dynamic> json) {
-    final c = json['customer'] as Map<String, dynamic>;
-    final place = [c['postalCode'], c['city']].whereType<String>().join(' ');
+    final c = json['customer'] as Map<String, dynamic>?;
+    final place = [c?['postalCode'], c?['city']].whereType<String>().join(' ');
     return InvoiceData(
       id: json['id'] as int,
       number: json['number'] as String,
@@ -191,10 +199,15 @@ class InvoiceData {
       date: json['date'] as String,
       status: InvoiceStatus.values.byName(json['status'] as String),
       businessName: (json['business'] as Map<String, dynamic>)['name'] as String,
-      customerNumber: c['number'] as int,
-      customerName: c['name'] as String,
-      customerAddress: [c['street'] as String?, if (place.isNotEmpty) place].whereType<String>().toList(),
-      lines: [for (final l in json['lines'] as List) InvoiceLine.fromJson(l as Map<String, dynamic>)],
+      customerNumber: c?['number'] as int?,
+      customerName: c?['name'] as String?,
+      customerAddress: [
+        c?['street'] as String?,
+        if (place.isNotEmpty) place,
+      ].whereType<String>().toList(),
+      lines: [
+        for (final l in json['lines'] as List) InvoiceLine.fromJson(l as Map<String, dynamic>),
+      ],
       total: json['total'] as String,
       vatEnabled: json['vatEnabled'] as bool,
       vatUid: json['vatUid'] as String?,
@@ -226,9 +239,16 @@ class InvoiceData {
   final String date;
   final InvoiceStatus status;
   final String businessName;
-  final int customerNumber;
-  final String customerName;
+
+  /// Null for an invoice without customer (change invoices-without-customer).
+  final int? customerNumber;
+  final String? customerName;
   final List<String> customerAddress;
+
+  bool get hasCustomer => customerName != null;
+
+  /// The customer's name, or "Ohne Kunde".
+  String get customerLabel => customerName ?? withoutCustomer;
   final List<InvoiceLine> lines;
   final String total;
   final bool vatEnabled;
@@ -238,6 +258,7 @@ class InvoiceData {
   final String? cancelledBy;
   final PaymentData? payment;
   final List<PaymentData> paymentHistory;
+
   /// The latest receipt job overall.
   final ReceiptStatus? receipt;
 

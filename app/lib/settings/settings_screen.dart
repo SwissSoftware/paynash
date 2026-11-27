@@ -204,7 +204,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Feature.tables: 'Orders belong to a table; table administration',
     Feature.stations: 'Station accounts with their ticket view',
     Feature.customers: 'Customer records; orders can have a customer',
-    Feature.invoices: 'Invoices, receipts, and PDFs for orders with a customer',
+    Feature.invoices: 'Invoices, receipts, and PDFs, with or without customer',
     Feature.salesReport: 'Monthly sales report and Excel export',
   };
 

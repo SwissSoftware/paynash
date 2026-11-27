@@ -189,7 +189,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
                 ),
               ),
             ),
-          if (order.hasCustomer && order.status == OrderStatus.sent && widget.invoiceApi != null)
+          // Every sent order can be invoiced while invoices are on (change invoices-without-customer).
+          if (order.status == OrderStatus.sent && widget.invoiceApi != null)
             ListTile(
               key: const Key('order-invoice'),
               leading: const Icon(Icons.receipt),

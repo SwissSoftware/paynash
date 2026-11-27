@@ -35,14 +35,16 @@ class FeatureSwitchTest extends InvoiceTestSupport {
 			.andExpect(jsonPath("$.detail").value("Customers are switched off"));
 	}
 
+	/** Spec invoicing, "Issue an invoice", scenario "Order without customer" (change invoices-without-customer). */
 	@Test
-	void tableOrderWithoutCustomerCannotBeInvoiced() throws Exception {
+	void tableOrderWithoutCustomerIsInvoicedWithoutRecipient() throws Exception {
 		settingsService.applyTemplate(Template.RESTAURANT);
 		settingsService.updateDetails(details(false, null));
-		long order = id(postJson(staff, "/orders", "{\"tableLabel\":\"12\",\"lines\":[" + line(facial, 1) + "]}")
+		long order = id(postJson(staff, "/orders", "{\"tableLabel\":\"12\",\"lines\":[" + line(tint, 1) + "]}")
 			.andExpect(status().isCreated()));
-		issue(staff, order).andExpect(status().isConflict())
-			.andExpect(jsonPath("$.detail").value("The order needs a customer to be invoiced"));
+		issue(staff, order).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.total").value("25.00"))
+			.andExpect(jsonPath("$.customer").doesNotExist());
 	}
 
 	@Test

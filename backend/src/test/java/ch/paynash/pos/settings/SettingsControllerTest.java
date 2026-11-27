@@ -108,24 +108,26 @@ class SettingsControllerTest extends IntegrationTest {
 				Feature.CUSTOMERS);
 	}
 
+	/** Spec business-features, "Sales report needs invoices": scenario "Invoices without customers". */
 	@Test
-	void invoicesWithoutCustomersAreRejected() throws Exception {
+	void invoicesWithoutCustomersAreAccepted() throws Exception {
 		String admin = adminToken();
+		template(admin, "counter").andExpect(status().isOk());
 		features(admin, """
-				{"tables":true,"stations":true,"customers":false,"invoices":true,"sales-report":false}""")
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.detail").value("The feature invoices needs customers; switch on customers as well"));
-		assertThat(settingsService.features()).doesNotContain(Feature.INVOICES);
+				{"tables":false,"stations":false,"customers":false,"invoices":true,"sales-report":true}""")
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.features.customers").value(false));
+		assertThat(settingsService.features()).containsExactlyInAnyOrder(Feature.INVOICES, Feature.SALES_REPORT);
 	}
 
 	@Test
-	void customersCannotBeSwitchedOffWhileInvoicesAreOn() throws Exception {
+	void invoicesCannotBeSwitchedOffWhileTheReportIsOn() throws Exception {
 		String admin = adminToken();
 		template(admin, "salon").andExpect(status().isOk());
 		features(admin, """
-				{"tables":false,"stations":false,"customers":false,"invoices":true,"sales-report":false}""")
+				{"tables":false,"stations":false,"customers":true,"invoices":false,"sales-report":true}""")
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.detail").value("Switch off invoices first, because it needs customers"));
+			.andExpect(jsonPath("$.detail").value("Switch off sales-report first, because it needs invoices"));
 	}
 
 	@Test
@@ -134,6 +136,7 @@ class SettingsControllerTest extends IntegrationTest {
 		features(admin, """
 				{"tables":true,"stations":true,"customers":true,"invoices":false,"sales-report":true}""")
 			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.detail").value("The feature sales-report needs invoices; switch on invoices as well"))
 			.andExpect(jsonPath("$.errors['sales-report']").exists());
 	}
 

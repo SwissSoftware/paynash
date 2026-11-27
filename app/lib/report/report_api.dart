@@ -53,10 +53,11 @@ class ReportData {
       (name: s['name'] as String, quantity: s['quantity'] as int, revenue: s['revenue'] as String),
   ];
 
-  List<({int number, String name, int invoiceCount, String revenue})> get customers => [
+  /// [number] is null for the entry "Ohne Kunde" (change invoices-without-customer).
+  List<({int? number, String name, int invoiceCount, String revenue})> get customers => [
     for (final c in json['customers'] as List)
       (
-        number: c['number'] as int,
+        number: c['number'] as int?,
         name: c['name'] as String,
         invoiceCount: c['invoiceCount'] as int,
         revenue: c['revenue'] as String,

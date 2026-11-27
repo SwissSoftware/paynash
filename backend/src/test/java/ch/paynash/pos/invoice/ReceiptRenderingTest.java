@@ -47,6 +47,21 @@ class ReceiptRenderingTest {
 				  Vielen Dank!""");
 	}
 
+	/** Change invoices-without-customer, design D3: no recipient block, everything else unchanged. */
+	@Test
+	void receiptWithoutCustomerHasNoRecipient() {
+		Invoice withCustomer = invoice(false, Invoice.Status.OPEN);
+		Invoice without = new Invoice(withCustomer.id(), withCustomer.number(), withCustomer.orderId(), null,
+				withCustomer.invoiceDate(), withCustomer.issuedAt(), withCustomer.issuedByName(), withCustomer.business(),
+				null, false, null, withCustomer.totalRappen(), withCustomer.status(), null, null, null,
+				withCustomer.lines(), withCustomer.vat(), withCustomer.payments());
+		String text = renderer.render(without, false).encode();
+		assertThat(text).contains("# Kosmetik Aurora", "# Rechnung 2026-0042", "Datum 13.11.2026", "1 x Facial",
+				"# Total CHF         170.00")
+			.doesNotContain("Kunde Nr.", "Laura Meier", "Bahnhofstrasse 5");
+		assertThat(text.lines().count()).isEqualTo(renderer.render(withCustomer, false).encode().lines().count() - 4);
+	}
+
 	@Test
 	void receiptWithVatShowsUidAndRates() {
 		String text = renderer.render(invoice(true, Invoice.Status.OPEN), false).encode();
@@ -84,7 +99,7 @@ class ReceiptRenderingTest {
 				new Invoice.Line(2, "Eyebrow tint", "Face", 2, 2500, 81, 5000, null));
 		var vatRows = vat ? List.of(new Vat.Row(81, 17000, 15726, 1274)) : List.<Vat.Row>of();
 		boolean cancelled = status == Invoice.Status.CANCELLED;
-		return new Invoice(1, "2026-0042", 7, 3, LocalDate.of(2026, 11, 13), Instant.parse("2026-11-13T10:00:00Z"),
+		return new Invoice(1, "2026-0042", 7, 3L, LocalDate.of(2026, 11, 13), Instant.parse("2026-11-13T10:00:00Z"),
 				"Anna", BUSINESS, LAURA, vat, vat ? "CHE-116.281.710 MWST" : null, 17000, status,
 				cancelled ? Instant.parse("2026-11-13T23:30:00Z") : null, cancelled ? "Boss" : null,
 				cancelled ? "wrong service" : null, lines, vatRows, List.of());

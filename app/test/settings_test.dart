@@ -131,17 +131,19 @@ void main() {
     testWidgets('dependencies are explained and block the switch', (tester) async {
       final app = await start(tester, user: 'boss');
       await openSettings(tester);
-      await scrollTo(tester, const Key('feature-invoices'));
-      expect(find.text('Needs customers'), findsOneWidget);
+      await scrollTo(tester, const Key('feature-sales-report'));
+      expect(find.text('Needs invoices'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('feature-sales-report')));
+      await tester.pumpAndSettle();
+      expect(app.backend.salon.has('sales-report'), isFalse);
+
+      // Invoices work without customers (change invoices-without-customer).
+      await scrollTo(tester, const Key('feature-invoices'), up: true);
       await tester.tap(find.byKey(const Key('feature-invoices')));
       await tester.pumpAndSettle();
-      expect(app.backend.salon.has('invoices'), isFalse);
-
-      await scrollTo(tester, const Key('feature-customers'), up: true);
-      await tester.tap(find.byKey(const Key('feature-customers')));
-      await tester.pumpAndSettle();
-      expect(app.backend.salon.has('customers'), isTrue);
-      expect(find.text('Needs customers'), findsNothing);
+      expect(app.backend.salon.has('invoices'), isTrue);
+      expect(app.backend.salon.has('customers'), isFalse);
+      expect(find.text('Needs invoices'), findsNothing);
     });
 
     testWidgets('admin renames the terms', (tester) async {

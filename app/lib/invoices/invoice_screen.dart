@@ -149,9 +149,12 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
             style: TextStyle(color: error),
           ),
         const SizedBox(height: 8),
-        Text('Customer no. ${i.customerNumber}', style: text.labelLarge),
-        Text(i.customerName),
-        for (final line in i.customerAddress) Text(line),
+        if (i.hasCustomer) ...[
+          Text('Customer no. ${i.customerNumber}', style: text.labelLarge),
+          Text(i.customerLabel),
+          for (final line in i.customerAddress) Text(line),
+        ] else
+          Text(i.customerLabel, key: const Key('invoice-without-customer'), style: text.labelLarge),
         const Divider(height: 24),
         for (final l in i.lines)
           ListTile(

@@ -74,8 +74,10 @@ missing type.
 
 ## Receipts for invoices
 
-While **Invoices** is on (templates Salon and Restaurant, change `configurable-business-features`), a **receipt
-printer** (also an Epson TM-m30III, set up as in *Printer setup*) prints the invoice for the customer. Kitchen and bar
+While **Invoices** is on (templates Salon and Restaurant, or switched on in any template, change
+`configurable-business-features`), a **receipt printer** (also an Epson TM-m30III, set up as in *Printer setup*)
+prints the invoice. An invoice without customer (up to CHF 400.00, change `invoices-without-customer`) prints the same
+receipt without the customer block. Kitchen and bar
 tickets follow the category assignment as everywhere; a salon simply assigns no categories to its printers.
 
 - Under **Printers**, add the printer and switch on **Receipts**. The switch is only shown while **Invoices** is on.
