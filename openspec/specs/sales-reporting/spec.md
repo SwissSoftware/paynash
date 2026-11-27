@@ -49,11 +49,15 @@ The report SHALL list each service sold in the period with the quantity and the 
 - **THEN** "Facial" is listed first with 10 and 1200.00, then "Manicure" with 15 and 900.00
 
 ### Requirement: Revenue per customer
-The report SHALL list each customer with invoices in the period with customer number, name, number of invoices, and revenue, sorted by revenue, highest first. Anonymized customers SHALL be shown as "Deleted customer" with their number.
+The report SHALL list each customer with invoices in the period with customer number, name, number of invoices, and revenue, sorted by revenue, highest first. Anonymized customers SHALL be shown as "Deleted customer" with their number. Invoices without customer SHALL be listed together as one entry "Ohne Kunde" without number, sorted by revenue like a customer.
 
 #### Scenario: Regular customer
 - **WHEN** "Laura Meier" had 2 invoices of 120.00 and 50.00 in October
 - **THEN** the October report lists the customer number, name, 2 invoices, and 170.00
+
+#### Scenario: Counter sales without customer
+- **WHEN** in October 30 invoices without customer total 845.50 and "Laura Meier" had invoices of 170.00
+- **THEN** the October report lists "Ohne Kunde" with 30 invoices and 845.50 first, then "Laura Meier", and the report total includes both
 
 ### Requirement: Report on the devices
 The report SHALL be available in the app on the web, Android, and iOS. It SHALL show the summary first and the lists for days, services, and customers in separate sections that can be opened one by one.

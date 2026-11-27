@@ -25,4 +25,4 @@
 ## 5. Docs and integration
 
 - [x] 5.1 Update `docs/counter-setup.md`, `docs/event-setup.md`, `docs/salon-setup.md`, and `docs/printing.md`: receipts without customer, the CHF 400 limit, and switching on invoices and the report without customers. Copy the regenerated `backend/target/openapi.json` to `docs/api/openapi.json`.
-- [ ] 5.2 Run `./mvnw verify` in `backend/` (JDK 21), `flutter test` and `flutter analyze` in `app/`, and verify all are green. Then, in a local installation, switch on invoices and the sales report in the Counter sales template, sell and invoice once below and once above CHF 400, and check receipt, PDF, invoice list, and report.
+- [x] 5.2 Run `./mvnw verify` in `backend/` (JDK 21), `flutter test` and `flutter analyze` in `app/`, and verify all are green. Then, in a local installation, switch on invoices and the sales report in the Counter sales template, sell and invoice once below and once above CHF 400, and check receipt, PDF, invoice list, and report.

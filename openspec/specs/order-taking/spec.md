@@ -188,7 +188,7 @@ An order SHALL accept lines of any item type, so services, food, and drinks can 
 - **THEN** both lines are saved in one order
 
 ### Requirement: Order history with customers and invoices
-While `customers` is on, the order history SHALL show the customer name and number of each order that has a customer, next to its table label if it also has one. While `invoices` is on, it SHALL show the invoice status (`not invoiced`, the invoice number with `open` or `paid`, or cancelled) of orders with a customer, and staff SHALL be able to issue the invoice of a not invoiced order from the history.
+While `customers` is on, the order history SHALL show the customer name and number of each order that has a customer, next to its table label if it also has one. While `invoices` is on, it SHALL show the invoice status (`not invoiced`, the invoice number with `open` or `paid`, or cancelled) of every order, with or without a customer, and staff SHALL be able to issue the invoice of a not invoiced order from the history.
 
 #### Scenario: Forgotten invoice
 - **WHEN** a staff member opens today's order history and an order of "Laura Meier" is `not invoiced`
@@ -201,3 +201,7 @@ While `customers` is on, the order history SHALL show the customer name and numb
 #### Scenario: Restaurant order for a company customer
 - **WHEN** an order for table "12" also has the customer "Muster AG" and `invoices` is on
 - **THEN** the history shows table "12", "Muster AG", and the invoice status
+
+#### Scenario: Receipt for a table afterwards
+- **WHEN** guests at table "7" ask for a receipt after their order without customer was sent
+- **THEN** the waiter opens the order in the history and issues its invoice without recipient

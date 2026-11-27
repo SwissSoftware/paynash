@@ -16,17 +16,6 @@ Each installation SHALL have a set of features that are each switched on or off:
 - **WHEN** a waiter tries to switch a feature on or off
 - **THEN** the system rejects the request as forbidden
 
-### Requirement: Feature dependencies
-`invoices` SHALL require `customers`, and `sales-report` SHALL require `invoices`, because invoices need a customer and the report is based on invoices. The system SHALL reject a feature set that breaks a dependency and name the missing or dependent feature.
-
-#### Scenario: Invoices without customers rejected
-- **WHEN** an admin switches on `invoices` while `customers` is off
-- **THEN** the system rejects the change with a message that `invoices` needs `customers`
-
-#### Scenario: Customers still needed
-- **WHEN** an admin switches off `customers` while `invoices` is on
-- **THEN** the system rejects the change with a message that `invoices` must be switched off first
-
 ### Requirement: Business templates
 Admins SHALL be able to apply a business template, which sets the features and the terms in one step: Event (`tables`, `stations`), Restaurant (`tables`, `stations`, `customers`, `invoices`, `sales-report`), Salon (`customers`, `invoices`, `sales-report`, salon terms), and Counter sales (no features). Applying a template SHALL NOT change any other data.
 
@@ -81,3 +70,18 @@ When an installation is updated to this version, the system SHALL convert its mo
 #### Scenario: Salon installation after the update
 - **WHEN** an installation in `salon` mode with customers and invoices is updated
 - **THEN** `customers`, `invoices`, and `sales-report` are on, the terms are "Staff", "Services", and "Confirm", and the apps behave as before
+
+### Requirement: Sales report needs invoices
+`sales-report` SHALL require `invoices`, because the report is based on invoices. `invoices` SHALL NOT require any other feature. The system SHALL reject a feature set with `sales-report` but without `invoices` and name the missing or dependent feature.
+
+#### Scenario: Report without invoices rejected
+- **WHEN** an admin switches on `sales-report` while `invoices` is off
+- **THEN** the system rejects the change with a message that `sales-report` needs `invoices`
+
+#### Scenario: Invoices still needed by the report
+- **WHEN** an admin switches off `invoices` while `sales-report` is on
+- **THEN** the system rejects the change with a message that `sales-report` must be switched off first
+
+#### Scenario: Invoices without customers
+- **WHEN** an admin of a café with all features off switches on `invoices` and `sales-report`
+- **THEN** the change is stored, and `customers` stays off
