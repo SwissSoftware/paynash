@@ -68,6 +68,10 @@ An order SHALL contain any mix of food and drink lines. Each line references an 
 - **WHEN** an order is sent that contains an item which was deactivated in the meantime
 - **THEN** the system rejects the whole order and names the inactive items, nothing is printed, and the app refreshes the menu and keeps the other lines in the draft
 
+#### Scenario: Deleted item rejected
+- **WHEN** an order is sent that contains an item which was deleted in the meantime
+- **THEN** the system rejects the whole order as for an inactive item, nothing is saved or printed, and the app removes the deleted item's lines, refreshes the menu, and keeps the other lines in the draft
+
 ### Requirement: Sent orders are final
 A sent order SHALL NOT accept new lines or changes to its lines. The only changes allowed are cancelling lines and voiding the order.
 
