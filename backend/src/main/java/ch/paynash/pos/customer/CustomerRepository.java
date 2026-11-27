@@ -19,8 +19,8 @@ public class CustomerRepository {
 			id, number, first_name, last_name, phone, email, street, postal_code, city, note, active,
 			anonymized_at IS NOT NULL AS anonymized""";
 
-	private static final String ORDER_BY = """
-			 ORDER BY lower(coalesce(last_name, '')), lower(coalesce(first_name, '')), number""";
+	// A plain string, not a text block: a single-line text block would strip the leading space.
+	private static final String ORDER_BY = " ORDER BY lower(coalesce(last_name, '')), lower(coalesce(first_name, '')), number";
 
 	private final JdbcClient jdbc;
 

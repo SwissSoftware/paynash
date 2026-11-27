@@ -20,6 +20,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import jakarta.servlet.DispatcherType;
+
 import ch.paynash.pos.common.IdempotencyFilter;
 import ch.paynash.pos.common.IdempotencyRepository;
 import ch.paynash.pos.common.Problems;
@@ -44,6 +46,10 @@ public class SecurityConfig {
 			// After authorization, so only permitted requests claim a key and keys are scoped per staff member.
 			.addFilterAfter(new IdempotencyFilter(idempotencyKeys, clock), AuthorizationFilter.class)
 			.authorizeHttpRequests(routes -> routes
+				// The original request was already authorized. The error dispatch only renders its response and
+				// carries no authentication (the token filter does not run again), so without this rule every
+				// unexpected server error would turn into a 401 and log the app out.
+				.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 				.requestMatchers(HttpMethod.GET, "/health", "/images/*").permitAll()
 				.requestMatchers(HttpMethod.HEAD, "/health", "/images/*").permitAll()
 				.requestMatchers(HttpMethod.POST, "/auth/login").permitAll()

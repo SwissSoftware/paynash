@@ -127,6 +127,26 @@ class CustomerControllerTest extends IntegrationTest {
 		search(admin, "?q=meili&includeInactive=true").andExpect(jsonPath("$[*].name", contains("Peter Meili")));
 	}
 
+	@Test
+	void listWithoutSearchTermShowsActiveCustomersSortedByName() throws Exception {
+		create(staff, json("firstName", "Sara", "lastName", "Keller"));
+		create(staff, json("firstName", "Laura", "lastName", "Meier"));
+		create(staff, json("firstName", "Anna", "lastName", "Keller"));
+		long meili = id(create(staff, json("firstName", "Peter", "lastName", "Meili")));
+		admin("/admin/customers/" + meili + "/deactivate").andExpect(status().isOk());
+		search(staff, "").andExpect(status().isOk())
+			.andExpect(jsonPath("$[*].name", contains("Anna Keller", "Sara Keller", "Laura Meier")));
+	}
+
+	@Test
+	void listWithoutSearchTermIncludesInactiveCustomersForAdmins() throws Exception {
+		create(staff, json("firstName", "Laura", "lastName", "Meier"));
+		long meili = id(create(staff, json("firstName", "Peter", "lastName", "Meili")));
+		admin("/admin/customers/" + meili + "/deactivate").andExpect(status().isOk());
+		search(admin, "?includeInactive=true").andExpect(status().isOk())
+			.andExpect(jsonPath("$[*].name", contains("Laura Meier", "Peter Meili")));
+	}
+
 	// --- duplicates
 
 	@Test
