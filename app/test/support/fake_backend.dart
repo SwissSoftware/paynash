@@ -185,8 +185,6 @@ class FakeBackend {
   Map<String, String> _validateItem(Map<String, dynamic> b) => {
     if ((b['name'] as String? ?? '').trim().isEmpty) 'name': 'must not be blank',
     if (b['type'] == null) 'type': 'Type is required (food, drink, or service)',
-    if (b['type'] != null && salon.isSalon && b['type'] != 'service')
-      'type': 'Only services can be created in salon mode',
     if (b['durationMin'] != null &&
         ((b['durationMin'] as int) < 5 || (b['durationMin'] as int) > 600))
       'durationMin': 'Duration must be between 5 and 600 minutes',
@@ -318,33 +316,6 @@ class FakeBackend {
   static int _lineTotal(Map<String, dynamic> l) =>
       l['status'] == 'cancelled' ? 0 : (l['qty'] as int) * _rappen(l['unitPrice'] as String);
 
-  /// Salon orders belong to a customer and print no tickets.
-  http.Response _confirmSalonOrder(Map<String, dynamic> body, FakeStaff me) {
-    final customerId = body['customerId'] as int?;
-    if (customerId == null) {
-      return _problem(400, 'Validation failed', {'customerId': 'Customer is required'});
-    }
-    final c = salon.customer(customerId);
-    if (c['active'] != true) {
-      return _json(409, {
-        'status': 409,
-        'detail': '${FakeSalon.customerName(c)} is no longer active',
-        'inactiveCustomerId': customerId,
-      });
-    }
-    final order = addSentOrder(null, me, const [])
-      ..['customerId'] = customerId
-      ..['customerNumber'] = c['number']
-      ..['customerName'] = FakeSalon.customerName(c);
-    for (final l in (body['lines'] as List).cast<Map<String, dynamic>>()) {
-      final note = (l['note'] as String?)?.trim();
-      (order['lines'] as List).add(
-        _line(l['menuItemId'] as int, l['qty'] as int, note == null || note.isEmpty ? null : note),
-      );
-    }
-    return _json(201, _orderJson(order));
-  }
-
   Map<String, dynamic> _invoiceRef(Map<String, dynamic> o) {
     final i = salon.invoiceOf(o['id'] as int);
     return {
@@ -415,15 +386,45 @@ class FakeBackend {
           },
       ]);
     }
-    if (path == '/orders' && r.method == 'POST' && salon.isSalon) return _confirmSalonOrder(body!, me);
     if (path == '/orders' && r.method == 'POST') {
-      final label = (body!['tableLabel'] as String).trim().toUpperCase();
-      if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(label)) {
-        return _json(400, {
-          'status': 400,
-          'detail': 'Validation failed',
-          'errors': {'tableLabel': 'Table must be 1 to 10 letters or digits'},
+      // Order target per features, as the backend (spec order-taking).
+      final tables = salon.has('tables');
+      final withCustomers = salon.has('customers');
+      final rawLabel = (body!['tableLabel'] as String?)?.trim();
+      String? label;
+      if (tables) {
+        label = (rawLabel ?? '').toUpperCase();
+        if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(label)) {
+          return _json(400, {
+            'status': 400,
+            'detail': 'Validation failed',
+            'errors': {'tableLabel': 'Table must be 1 to 10 letters or digits'},
+          });
+        }
+      } else if (rawLabel != null && rawLabel.isNotEmpty) {
+        return _problem(400, 'Validation failed', {
+          'tableLabel': 'Tables are switched off, so orders have no table',
         });
+      }
+      final customerId = body['customerId'] as int?;
+      if (!withCustomers && customerId != null) {
+        return _problem(400, 'Validation failed', {
+          'customerId': 'Customers are switched off, so orders have no customer',
+        });
+      }
+      if (withCustomers && !tables && customerId == null) {
+        return _problem(400, 'Validation failed', {'customerId': 'Customer is required'});
+      }
+      Map<String, dynamic>? customer;
+      if (customerId != null) {
+        customer = salon.customer(customerId);
+        if (customer['active'] != true) {
+          return _json(409, {
+            'status': 409,
+            'detail': '${FakeSalon.customerName(customer)} is no longer active',
+            'inactiveCustomerId': customerId,
+          });
+        }
       }
       final lines = (body['lines'] as List).cast<Map<String, dynamic>>();
       final inactive = [for (final l in lines) items.firstWhere((i) => i['id'] == l['menuItemId'])]
@@ -437,6 +438,12 @@ class FakeBackend {
         });
       }
       final order = addSentOrder(label, me, const []);
+      if (customer != null) {
+        order
+          ..['customerId'] = customerId
+          ..['customerNumber'] = customer['number']
+          ..['customerName'] = FakeSalon.customerName(customer);
+      }
       for (final l in lines) {
         final note = (l['note'] as String?)?.trim();
         (order['lines'] as List).add(

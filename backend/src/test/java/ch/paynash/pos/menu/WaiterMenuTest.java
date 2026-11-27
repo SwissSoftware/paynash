@@ -1,6 +1,7 @@
 package ch.paynash.pos.menu;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -15,7 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Template;
 
 class WaiterMenuTest extends MenuTestSupport {
 
@@ -95,8 +96,8 @@ class WaiterMenuTest extends MenuTestSupport {
 	}
 
 	@Test
-	void salonModeShowsOnlyServicesWithDurationAndVatRate() throws Exception {
-		settingsService.changeMode(Mode.SALON);
+	void servicesAreShownNextToOtherItemsWithDurationAndVatRate() throws Exception {
+		settingsService.applyTemplate(Template.SALON);
 		long face = createCategory("Face");
 		mvc.perform(post("/admin/items").header(HttpHeaders.AUTHORIZATION, bearer(admin))
 			.contentType(MediaType.APPLICATION_JSON)
@@ -105,10 +106,10 @@ class WaiterMenuTest extends MenuTestSupport {
 			.andExpect(status().isCreated());
 		mvc.perform(get("/menu").header(HttpHeaders.AUTHORIZATION, bearer(waiter)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.categories[*].name", contains("Face")))
-			.andExpect(jsonPath("$.categories[0].items[0].name").value("Facial"))
-			.andExpect(jsonPath("$.categories[0].items[0].durationMin").value(60))
-			.andExpect(jsonPath("$.categories[0].items[0].vatRate").value("8.1"));
+			.andExpect(jsonPath("$.categories[*].name", hasItem("Face")))
+			.andExpect(jsonPath("$.categories[?(@.name == 'Face')].items[0].name", contains("Facial")))
+			.andExpect(jsonPath("$.categories[?(@.name == 'Face')].items[0].durationMin", contains(60)))
+			.andExpect(jsonPath("$.categories[?(@.name == 'Face')].items[0].vatRate", contains("8.1")));
 	}
 
 	@Test

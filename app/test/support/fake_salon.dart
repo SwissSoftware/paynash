@@ -9,8 +9,27 @@ class FakeSalon {
 
   // --- settings
 
+  static const _templates = {
+    'event': (['tables', 'stations'], {'waiter': 'Waiter', 'items': 'Menu', 'send': 'Send'}),
+    'restaurant': (
+      ['tables', 'stations', 'customers', 'invoices', 'sales-report'],
+      {'waiter': 'Waiter', 'items': 'Menu', 'send': 'Send'},
+    ),
+    'salon': (
+      ['customers', 'invoices', 'sales-report'],
+      {'waiter': 'Staff', 'items': 'Services', 'send': 'Confirm'},
+    ),
+    'counter': (<String>[], {'waiter': 'Staff', 'items': 'Menu', 'send': 'Sell'}),
+  };
+
+  static const featureKeys = ['tables', 'stations', 'customers', 'invoices', 'sales-report'];
+
+  static const _requires = {'invoices': 'customers', 'sales-report': 'invoices'};
+
   Map<String, dynamic> settings = {
-    'mode': 'event',
+    'features': {for (final f in featureKeys) f: f == 'tables' || f == 'stations'},
+    'template': 'event',
+    'terms': {'waiter': 'Waiter', 'items': 'Menu', 'send': 'Send'},
     'businessName': null,
     'street': null,
     'postalCode': null,
@@ -26,13 +45,24 @@ class FakeSalon {
 
   int settingsRequests = 0;
 
-  bool get isSalon => settings['mode'] == 'salon';
+  bool has(String feature) => (settings['features'] as Map)[feature] == true;
 
-  /// Switches to salon mode with complete business details.
-  void useSalon({bool vat = false}) {
+  /// Applies a template's features and terms, as POST /admin/settings/template.
+  void useTemplate(String template) {
+    final (features, terms) = _templates[template]!;
     settings = {
       ...settings,
-      'mode': 'salon',
+      'features': {for (final f in featureKeys) f: features.contains(f)},
+      'template': template,
+      'terms': terms,
+    };
+  }
+
+  /// Switches to the salon template with complete business details.
+  void useSalon({bool vat = false}) {
+    useTemplate('salon');
+    settings = {
+      ...settings,
       'businessName': 'Kosmetik Aurora',
       'street': 'Bahnhofstrasse 1',
       'postalCode': '3000',
@@ -49,14 +79,36 @@ class FakeSalon {
       return FakeBackend._json(200, settings);
     }
     if (path == '/admin/settings' && r.method == 'PUT') return _saveSettings(body!);
-    if (path == '/admin/settings/mode' && r.method == 'PUT') {
-      if (body!['mode'] != settings['mode'] && backend.orders.isNotEmpty) {
-        return FakeBackend._problem(
-          409,
-          'The installation already has orders, so its mode can no longer change',
-        );
+    if (path == '/admin/settings/template' && r.method == 'POST') {
+      useTemplate(body!['template'] as String);
+      return FakeBackend._json(200, settings);
+    }
+    if (path == '/admin/settings/features' && r.method == 'PUT') {
+      final requested = body!.cast<String, bool>();
+      for (final MapEntry(key: f, value: needed) in _requires.entries) {
+        if (requested[f] == true && requested[needed] != true) {
+          return FakeBackend._problem(
+            400,
+            has(needed)
+                ? 'Switch off $f first, because it needs $needed'
+                : 'The feature $f needs $needed; switch on $needed as well',
+          );
+        }
       }
-      settings = {...settings, 'mode': body['mode']};
+      settings = {...settings, 'features': requested, 'template': 'custom'};
+      return FakeBackend._json(200, settings);
+    }
+    if (path == '/admin/settings/terms' && r.method == 'PUT') {
+      final errors = {
+        for (final key in ['waiter', 'items', 'send'])
+          if (((body![key] as String?) ?? '').trim().isEmpty) key: 'Required',
+      };
+      if (errors.isNotEmpty) return FakeBackend._problem(400, 'Validation failed', errors);
+      settings = {
+        ...settings,
+        'terms': {for (final key in ['waiter', 'items', 'send']) key: (body![key] as String).trim()},
+        'template': 'custom',
+      };
       return FakeBackend._json(200, settings);
     }
     return _customerRoutes(r, body, me) ?? _invoiceRoutes(r, body, me) ?? _reportRoutes(r);
@@ -483,9 +535,9 @@ class FakeSalon {
 
     final errors = <String, String>{};
     if (text('businessName') == null) errors['businessName'] = 'Business name is required';
-    if (isSalon) {
+    if (has('invoices')) {
       for (final f in ['street', 'postalCode', 'city']) {
-        if (text(f) == null) errors[f] = 'Required in salon mode';
+        if (text(f) == null) errors[f] = 'Required while invoices are on';
       }
     }
     final uid = text('vatUid');
@@ -496,7 +548,9 @@ class FakeSalon {
     }
     if (errors.isNotEmpty) return FakeBackend._problem(400, 'Validation failed', errors);
     settings = {
-      'mode': settings['mode'],
+      'features': settings['features'],
+      'template': settings['template'],
+      'terms': settings['terms'],
       for (final f in [
         'businessName',
         'street',

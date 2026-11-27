@@ -21,16 +21,16 @@ The system SHALL check every request against the caller's role and the enabled f
 - **WHEN** a request without a valid session reaches any non-login endpoint
 - **THEN** the system rejects it as unauthenticated
 
-#### Scenario: Staff issue and collect
+#### Scenario: Salon staff issue and collect
 - **WHEN** `customers` and `invoices` are on and a waiter creates a customer, issues an invoice, and marks it paid by cash
 - **THEN** all three requests succeed
 
-#### Scenario: Staff cannot see the report
+#### Scenario: Salon staff cannot see the report
 - **WHEN** `sales-report` is on and a waiter requests the sales report
 - **THEN** the system rejects the request as forbidden
 
-#### Scenario: Station with stations off
-- **WHEN** someone logs in with a `station` account while `stations` is off
+#### Scenario: Station in a salon
+- **WHEN** someone logs in with a `station` account in an installation where `stations` is off, such as a salon
 - **THEN** the system rejects the login, because the installation has no station view
 
 #### Scenario: Station sessions after switching stations off

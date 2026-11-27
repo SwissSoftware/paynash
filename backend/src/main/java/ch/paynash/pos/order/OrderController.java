@@ -59,7 +59,7 @@ public class OrderController {
 	}
 
 	/**
-	 * The invoice of a salon order: the one that is not cancelled, else the latest cancelled one; null while the
+	 * The invoice of an order with a customer: the one that is not cancelled, else the latest cancelled one; null while the
 	 * order is not invoiced. {@code status} is open, paid, or cancelled.
 	 */
 	public record InvoiceRefView(long id, String number, String status) {
@@ -103,7 +103,7 @@ public class OrderController {
 			@Size(max = 140, message = "Note must be at most 140 characters") String note) {
 	}
 
-	/** Event mode needs {@code tableLabel}, salon mode needs {@code customerId} (add-salon-mode design D3). */
+	/** Which of {@code tableLabel} and {@code customerId} are needed depends on the features (design D3). */
 	public record SendRequest(String tableLabel, Long customerId,
 			@NotEmpty(message = "The order has no lines") List<@Valid @NotNull LineRequest> lines) {
 	}
@@ -125,9 +125,10 @@ public class OrderController {
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
 	@Operation(summary = "Send an order",
-			description = "Saves the order as sent and creates the print jobs in the same transaction. In event mode "
-					+ "the table label is 1 to 10 letters or digits and stored upper-case. In salon mode the order "
-					+ "is confirmed for customerId instead, contains only services, and prints no tickets. Name, "
+			description = "Saves the order as sent and creates the print jobs in the same transaction. tableLabel (1 "
+					+ "to 10 letters or digits, stored upper-case) is required while tables are on and not allowed "
+					+ "otherwise. customerId is required while customers are on and tables off, optional while both "
+					+ "are on, and not allowed while customers are off. Items of all types may be mixed. Name, "
 					+ "type, category, price, and VAT rate are copied from the menu items. 409 with "
 					+ "inactiveMenuItemIds or inactiveCustomerId if items or the customer were deactivated; nothing "
 					+ "is saved then.")

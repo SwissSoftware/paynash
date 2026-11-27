@@ -1,4 +1,4 @@
-/// Food and drinks are sold in event mode, services in salon mode.
+/// The kind of a menu item. All kinds can be mixed in one menu (spec menu-catalog).
 enum ItemType { food, drink, service }
 
 /// An item as offered to waiters (active items only).
@@ -14,14 +14,14 @@ class MenuItemData {
   });
 
   factory MenuItemData.fromJson(Map<String, dynamic> json) => MenuItemData(
-        id: json['id'] as int,
-        name: json['name'] as String,
-        type: ItemType.values.byName(json['type'] as String),
-        price: json['price'] as String,
-        description: json['description'] as String?,
-        imageUrl: json['imageUrl'] as String?,
-        durationMin: json['durationMin'] as int?,
-      );
+    id: json['id'] as int,
+    name: json['name'] as String,
+    type: ItemType.values.byName(json['type'] as String),
+    price: json['price'] as String,
+    description: json['description'] as String?,
+    imageUrl: json['imageUrl'] as String?,
+    durationMin: json['durationMin'] as int?,
+  );
 
   final int id;
   final String name;
@@ -40,13 +40,12 @@ class MenuCategoryData {
   MenuCategoryData({required this.id, required this.name, required this.items});
 
   factory MenuCategoryData.fromJson(Map<String, dynamic> json) => MenuCategoryData(
-        id: json['id'] as int,
-        name: json['name'] as String,
-        items: [
-          for (final item in json['items'] as List)
-            MenuItemData.fromJson(item as Map<String, dynamic>),
-        ],
-      );
+    id: json['id'] as int,
+    name: json['name'] as String,
+    items: [
+      for (final item in json['items'] as List) MenuItemData.fromJson(item as Map<String, dynamic>),
+    ],
+  );
 
   final int id;
   final String name;

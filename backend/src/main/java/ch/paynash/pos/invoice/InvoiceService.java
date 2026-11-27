@@ -66,7 +66,7 @@ public class InvoiceService {
 	}
 
 	/**
-	 * Issues the invoice of a confirmed salon order. The order row is locked, the same lock cancelling and voiding
+	 * Issues the invoice of a confirmed order with a customer. The order row is locked, the same lock cancelling and voiding
 	 * take, so an invoice and a correction of the same order cannot overlap. The number comes from the year's
 	 * counter in the same transaction, so a failure leaves no gap. The receipt is queued in the same transaction.
 	 */
@@ -80,7 +80,7 @@ public class InvoiceService {
 		}
 		Order order = orders.findForUpdate(orderId).orElseThrow(() -> ApiException.notFound("Order"));
 		if (order.customerId() == null) {
-			throw ApiException.conflict("Only orders for a customer can be invoiced");
+			throw ApiException.conflict("The order needs a customer to be invoiced");
 		}
 		if (order.status() != OrderStatus.SENT) {
 			throw ApiException.conflict("The order is " + order.status().dbValue() + " and cannot be invoiced");

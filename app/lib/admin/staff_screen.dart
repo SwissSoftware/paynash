@@ -12,14 +12,18 @@ class StaffScreen extends StatefulWidget {
     super.key,
     required this.api,
     required this.me,
-    this.terms = const Terms(VenueMode.event),
+    this.terms = Terms.standard,
+    this.stations = true,
   });
 
   final StaffApi api;
   final Me me;
 
-  /// In salon mode the `waiter` role is called "staff", and there are no stations.
+  /// The configured name of the `waiter` role (spec business-features).
   final Terms terms;
+
+  /// Whether station accounts can be created (feature `stations`).
+  final bool stations;
 
   @override
   State<StaffScreen> createState() => _StaffScreenState();
@@ -52,7 +56,12 @@ class _StaffScreenState extends State<StaffScreen> {
   Future<void> _openForm([StaffMember? member]) async {
     final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => _StaffFormDialog(api: widget.api, member: member, terms: widget.terms),
+      builder: (_) => _StaffFormDialog(
+        api: widget.api,
+        member: member,
+        terms: widget.terms,
+        stations: widget.stations,
+      ),
     );
     if (saved == true) await _load();
   }
@@ -63,8 +72,8 @@ class _StaffScreenState extends State<StaffScreen> {
       builder: (_) => _ResetPinDialog(api: widget.api, member: member),
     );
     if (done == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PIN for ${member.displayName} was reset')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('PIN for ${member.displayName} was reset')));
     }
   }
 
@@ -81,35 +90,37 @@ class _StaffScreenState extends State<StaffScreen> {
       body: _error != null
           ? Center(child: Text(_error!))
           : staff == null
-              ? const Center(child: CircularProgressIndicator())
-              : ListView(
-                  padding: const EdgeInsets.only(bottom: 88),
-                  children: [
-                    for (final m in staff)
-                      ListTile(
-                        key: Key('staff-${m.username}'),
-                        leading: Icon(switch (m.role) {
-                          Role.admin => Icons.admin_panel_settings,
-                          Role.station => Icons.print,
-                          Role.waiter => Icons.person,
-                        }),
-                        title: Text(m.displayName,
-                            style: m.active
-                                ? null
-                                : const TextStyle(
-                                    decoration: TextDecoration.lineThrough)),
-                        subtitle: Text(
-                            '${m.username} · ${_roleLabel(m.role, widget.terms).toLowerCase()}'
-                            '${m.active ? '' : ' · inactive'}'),
-                        onTap: () => _openForm(m),
-                        trailing: IconButton(
-                          tooltip: 'Reset PIN',
-                          icon: const Icon(Icons.password),
-                          onPressed: () => _resetPin(m),
-                        ),
-                      ),
-                  ],
-                ),
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.only(bottom: 88),
+              children: [
+                for (final m in staff)
+                  ListTile(
+                    key: Key('staff-${m.username}'),
+                    leading: Icon(switch (m.role) {
+                      Role.admin => Icons.admin_panel_settings,
+                      Role.station => Icons.print,
+                      Role.waiter => Icons.person,
+                    }),
+                    title: Text(
+                      m.displayName,
+                      style: m.active
+                          ? null
+                          : const TextStyle(decoration: TextDecoration.lineThrough),
+                    ),
+                    subtitle: Text(
+                      '${m.username} · ${_roleLabel(m.role, widget.terms).toLowerCase()}'
+                      '${m.active ? '' : ' · inactive'}',
+                    ),
+                    onTap: () => _openForm(m),
+                    trailing: IconButton(
+                      tooltip: 'Reset PIN',
+                      icon: const Icon(Icons.password),
+                      onPressed: () => _resetPin(m),
+                    ),
+                  ),
+              ],
+            ),
     );
   }
 }
@@ -122,11 +133,17 @@ final _pinFormatters = [
 ];
 
 class _StaffFormDialog extends StatefulWidget {
-  const _StaffFormDialog({required this.api, this.member, required this.terms});
+  const _StaffFormDialog({
+    required this.api,
+    this.member,
+    required this.terms,
+    required this.stations,
+  });
 
   final StaffApi api;
   final StaffMember? member;
   final Terms terms;
+  final bool stations;
 
   @override
   State<_StaffFormDialog> createState() => _StaffFormDialogState();
@@ -134,8 +151,7 @@ class _StaffFormDialog extends StatefulWidget {
 
 class _StaffFormDialogState extends State<_StaffFormDialog> {
   late final _username = TextEditingController(text: widget.member?.username);
-  late final _displayName =
-      TextEditingController(text: widget.member?.displayName);
+  late final _displayName = TextEditingController(text: widget.member?.displayName);
   final _pin = TextEditingController();
   late Role _role = widget.member?.role ?? Role.waiter;
   late bool _active = widget.member?.active ?? true;
@@ -167,17 +183,20 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     try {
       if (_isNew) {
         await widget.api.create(
-            username: _username.text.trim(),
-            displayName: _displayName.text.trim(),
-            role: _role,
-            pin: _pin.text,
-            printerIds: _assigned);
+          username: _username.text.trim(),
+          displayName: _displayName.text.trim(),
+          role: _role,
+          pin: _pin.text,
+          printerIds: _assigned,
+        );
       } else {
-        await widget.api.update(widget.member!.id,
-            displayName: _displayName.text.trim(),
-            role: _role,
-            active: _active,
-            printerIds: _assigned);
+        await widget.api.update(
+          widget.member!.id,
+          displayName: _displayName.text.trim(),
+          role: _role,
+          active: _active,
+          printerIds: _assigned,
+        );
       }
       if (mounted) Navigator.pop(context, true);
     } on ApiError catch (e) {
@@ -206,14 +225,17 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
               controller: _username,
               enabled: _isNew,
               decoration: InputDecoration(
-                  labelText: 'Username', errorText: _fieldErrors['username']),
+                labelText: 'Username',
+                errorText: _fieldErrors['username'],
+              ),
             ),
             TextField(
               key: const Key('staff-display-name'),
               controller: _displayName,
               decoration: InputDecoration(
-                  labelText: 'Display name',
-                  errorText: _fieldErrors['displayName']),
+                labelText: 'Display name',
+                errorText: _fieldErrors['displayName'],
+              ),
             ),
             if (_isNew)
               TextField(
@@ -223,16 +245,16 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                 autofillHints: const [],
                 inputFormatters: _pinFormatters,
                 decoration: InputDecoration(
-                    labelText: 'PIN (4–8 digits)', errorText: _fieldErrors['pin']),
+                  labelText: 'PIN (4–8 digits)',
+                  errorText: _fieldErrors['pin'],
+                ),
               ),
             const SizedBox(height: 16),
             SegmentedButton<Role>(
               segments: [
                 for (final role in [Role.waiter, Role.admin, Role.station])
-                  // Salon mode has no station view (spec staff-access).
-                  if (role != Role.station ||
-                      widget.terms.mode == VenueMode.event ||
-                      _role == Role.station)
+                  // No station view while stations are off (spec staff-access).
+                  if (role != Role.station || widget.stations || _role == Role.station)
                     ButtonSegment(value: role, label: Text(_roleLabel(role, widget.terms))),
               ],
               selected: {_role},
@@ -249,15 +271,17 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                       key: Key('staff-printer-${p.name}'),
                       label: Text(p.name),
                       selected: _printerIds.contains(p.id),
-                      onSelected: (on) => setState(
-                          () => on ? _printerIds.add(p.id) : _printerIds.remove(p.id)),
+                      onSelected: (on) =>
+                          setState(() => on ? _printerIds.add(p.id) : _printerIds.remove(p.id)),
                     ),
                 ],
               ),
               if (_fieldErrors['printerIds'] != null)
-                Text(_fieldErrors['printerIds']!,
-                    key: const Key('staff-printers-error'),
-                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                Text(
+                  _fieldErrors['printerIds']!,
+                  key: const Key('staff-printers-error'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
             ],
             if (!_isNew)
               SwitchListTile(
@@ -269,20 +293,18 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
               ),
             if (_error != null) ...[
               const SizedBox(height: 8),
-              Text(_error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
           ],
         ),
       ),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
         FilledButton(
-            key: const Key('staff-save'),
-            onPressed: _busy ? null : _save,
-            child: const Text('Save')),
+          key: const Key('staff-save'),
+          onPressed: _busy ? null : _save,
+          child: const Text('Save'),
+        ),
       ],
     );
   }
@@ -322,25 +344,19 @@ class _ResetPinDialogState extends State<_ResetPinDialog> {
         autofillHints: const [],
         autofocus: true,
         inputFormatters: _pinFormatters,
-        decoration:
-            InputDecoration(labelText: 'New PIN (4–8 digits)', errorText: _error),
+        decoration: InputDecoration(labelText: 'New PIN (4–8 digits)', errorText: _error),
       ),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel')),
-        FilledButton(
-            key: const Key('reset-pin-save'),
-            onPressed: _save,
-            child: const Text('Save')),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        FilledButton(key: const Key('reset-pin-save'), onPressed: _save, child: const Text('Save')),
       ],
     );
   }
 }
 
-/// "Waiter" is shown as "Staff" in salon mode (spec venue-mode, "Salon terms").
+/// The `waiter` role is shown with its configured name (spec business-features).
 String _roleLabel(Role role, Terms terms) => switch (role) {
-      Role.waiter => terms.waiter,
-      Role.admin => 'Admin',
-      Role.station => 'Station',
-    };
+  Role.waiter => terms.waiter,
+  Role.admin => 'Admin',
+  Role.station => 'Station',
+};

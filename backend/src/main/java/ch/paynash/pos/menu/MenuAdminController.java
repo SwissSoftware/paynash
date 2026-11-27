@@ -133,7 +133,7 @@ public class MenuAdminController {
 	@ResponseStatus(HttpStatus.CREATED)
 	@Operation(summary = "Create an item",
 			description = "price is CHF as a string, e.g. \"4.50\". vatRate is one of \"8.1\" (default), \"2.6\", "
-					+ "\"3.8\", \"0\". Salon mode accepts only type service, event mode only food and drink.")
+					+ "\"3.8\", \"0\".")
 	public ItemView createItem(@Valid @RequestBody ItemRequest r) {
 		return ItemView.of(service.createItem(r.toInput()));
 	}

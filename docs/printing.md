@@ -72,13 +72,14 @@ missing type.
   **Reprint** any ticket that is not waiting or printing; the reprint carries a `*** REPRINT ***` banner and goes to the
   printer that serves the ticket's type now.
 
-## Receipts in salon mode
+## Receipts for invoices
 
-In salon mode (change `add-salon-mode`) there are no kitchen or bar tickets: services are never printed. Instead, a
-**receipt printer** (also an Epson TM-m30III, set up as in *Printer setup*) prints the invoice for the customer.
+While **Invoices** is on (templates Salon and Restaurant, change `configurable-business-features`), a **receipt
+printer** (also an Epson TM-m30III, set up as in *Printer setup*) prints the invoice for the customer. Kitchen and bar
+tickets follow the category assignment as everywhere; a salon simply assigns no categories to its printers.
 
-- Under **Printers**, add the printer with the type **Receipt**. A salon accepts only receipt printers, an event only
-  food and drink printers. At most one receipt printer is active.
+- Under **Printers**, add the printer and switch on **Receipts**. The switch is only shown while **Invoices** is on.
+  Several printers may print receipts, and one printer may print both tickets and receipts.
 - **Issuing an invoice** queues its receipt in the same transaction. It goes through the same queue as tickets, so all
   rules above apply: it **waits** while the printer is offline, out of paper, or open, becomes **unclear** if the printer
   may have printed it, and is never printed twice by itself. The receipt carries the printer's running number on top
@@ -86,7 +87,8 @@ In salon mode (change `add-salon-mode`) there are no kitchen or bar tickets: ser
 - The invoice view shows the latest receipt's status and error. **Print copy** prints the receipt again marked
   `*** KOPIE ***` (and `*** STORNIERT ***` for a cancelled invoice). A copy also resolves an unclear receipt. It is
   refused while a receipt of the invoice is still waiting or printing.
-- Without an active receipt printer, the invoice is still issued and its receipt is **failed: no printer configured**.
+- Without an active printer with receipts on, the invoice is still issued and its receipt is **failed: no active
+  printer**.
   After adding the printer, print a copy.
 
 ## Troubleshooting

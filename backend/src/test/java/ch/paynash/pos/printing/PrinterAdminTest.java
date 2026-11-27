@@ -15,7 +15,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import com.jayway.jsonpath.JsonPath;
 
 import ch.paynash.pos.menu.ItemType;
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Template;
 import ch.paynash.pos.support.FakeEposPrinter;
 
 /** Spec ticket-printing, "Printer configuration". */
@@ -145,7 +145,7 @@ class PrinterAdminTest extends PrintingTestSupport {
 	void bothSwitchesAreAvailableInEveryMode() throws Exception {
 		create("Counter", "192.168.1.60", false, true, true).andExpect(status().isCreated())
 			.andExpect(jsonPath("$.printsReceipts").value(true));
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 		menu.insertCategory("Hair");
 		create("Salon desk", "192.168.1.61", true, false, true, category("Hair")).andExpect(status().isCreated());
 		create("Front", "192.168.1.62", false, true, true).andExpect(status().isCreated());

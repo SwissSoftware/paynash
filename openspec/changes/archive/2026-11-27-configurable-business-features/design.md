@@ -33,7 +33,7 @@ Same mechanism as today (handler interceptor, annotation on class or method), so
 V16 drops `orders_table_or_customer_check`. `OrderService.send` enforces the rules from the spec at send time: table label required if and only if `tables` is on; customer required if `customers` is on and `tables` is off, optional if both are on, forbidden if `customers` is off. `lockModeForOrder()` becomes `lockFeaturesForOrder()` and keeps the `FOR SHARE` lock, so a feature switch cannot interleave with a send and leave an order that breaks the rules of the moment it was saved. Old orders are never re-validated, which is what "Switching features with existing data" needs.
 
 **D4 Templates are presets, stored for display only.**
-`POST /admin/settings/template` writes the template's features and default terms in one transaction. The `template` column records the last applied template. Any later change to features or terms sets it to `custom`. Nothing in the code branches on the template, only on features, so templates can be added or changed without touching business logic. Contents: Event (`tables`, `stations`; terms Waiter, Items, Send), Restaurant (`tables`, `stations`, `customers`, `invoices`, `sales-report`; same terms), Salon (`customers`, `invoices`, `sales-report`; Staff, Services, Confirm), Counter sales (none; Staff, Items, Sell).
+`POST /admin/settings/template` writes the template's features and default terms in one transaction. The `template` column records the last applied template. Any later change to features or terms sets it to `custom`. Nothing in the code branches on the template, only on features, so templates can be added or changed without touching business logic. Contents: Event (`tables`, `stations`; terms Waiter, Menu, Send, as the apps showed before), Restaurant (`tables`, `stations`, `customers`, `invoices`, `sales-report`; same terms), Salon (`customers`, `invoices`, `sales-report`; Staff, Services, Confirm), Counter sales (none; Staff, Menu, Sell).
 
 **D5 Settings API.**
 `GET /settings` returns `features` (object of booleans), `template`, `terms`, and the business details. `PUT /admin/settings/features` takes the full feature object, `PUT /admin/settings/terms` the three terms. `PUT /admin/settings/mode` and the `mode` field are removed. The app is the only client and ships in the same release. The OpenAPI document (`OpenApiTest`) is updated with it.
@@ -45,7 +45,7 @@ V16 drops `orders_table_or_customer_check`. `OrderService.send` enforces the rul
 The checks in `MenuAdminService` and `WaiterMenuController` that reject `service` in event mode or non-services in salon mode are removed. All active items are offered when building an order. Whether a line prints a production ticket is decided by printer category routing only.
 
 **D8 Migration V16.**
-1. Add the feature, template, and term columns with defaults (all features off, terms Waiter/Items/Send).
+1. Add the feature, template, and term columns with defaults (all features off, terms Waiter/Menu/Send).
 2. `mode = 'event'` → template `event`, `feature_tables` and `feature_stations` on.
 3. `mode = 'salon'` → template `salon`, `feature_customers`, `feature_invoices`, `feature_sales_report` on, terms Staff/Services/Confirm.
 4. Add the dependency checks, drop `orders_table_or_customer_check`, drop `mode`.

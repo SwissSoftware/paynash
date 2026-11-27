@@ -40,15 +40,16 @@ class OrderSummary {
   final int? customerNumber;
   final String? customerName;
 
-  /// The invoice of a salon order, or null while it is not invoiced.
+  /// The invoice of an order with a customer, or null while it is not invoiced.
   final InvoiceRef? invoice;
   final OrderStatus status;
   final String waiter;
   final DateTime sentAt;
   final String total;
 
-  /// "Table 12" or the customer's name.
-  String get title => tableLabel != null ? 'Table $tableLabel' : customerName ?? '';
+  /// "Table 12", the customer's name, both, or "Order 42" for a counter sale.
+  String get title =>
+      [if (tableLabel != null) 'Table $tableLabel', ?customerName].join(' · ').ifEmpty('Order $id');
 
   /// The state of the order's tickets, ignoring tickets that were reprinted:
   /// failed if any failed, else unclear if any may or may not have printed,
@@ -253,10 +254,11 @@ class OrderData {
   final String waiter;
   final DateTime sentAt;
 
-  bool get isSalon => customerId != null;
+  bool get hasCustomer => customerId != null;
 
-  /// "Table 12" or the customer's name.
-  String get title => tableLabel != null ? 'Table $tableLabel' : customerName ?? '';
+  /// "Table 12", the customer's name, both, or "Order 42" for a counter sale.
+  String get title =>
+      [if (tableLabel != null) 'Table $tableLabel', ?customerName].join(' · ').ifEmpty('Order $id');
 
   /// Sent back when voiding, so cancellations made meanwhile are not overlooked.
   final int version;
@@ -295,3 +297,7 @@ int rappen(String chf) {
 
 /// 450 → "4.50".
 String chf(int rappen) => '${rappen ~/ 100}.${(rappen % 100).toString().padLeft(2, '0')}';
+
+extension on String {
+  String ifEmpty(String other) => isEmpty ? other : this;
+}

@@ -13,7 +13,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Template;
 
 class ItemAdminTest extends MenuTestSupport {
 
@@ -161,7 +161,7 @@ class ItemAdminTest extends MenuTestSupport {
 
 	@Test
 	void createServiceInSalonMode() throws Exception {
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 		long face = createCategory("Face");
 		postItem(json("categoryId", face, "name", "Facial", "type", "service", "price", "120.00", "durationMin", 60))
 			.andExpect(status().isCreated())
@@ -171,23 +171,22 @@ class ItemAdminTest extends MenuTestSupport {
 	}
 
 	@Test
-	void foodIsRejectedInSalonMode() throws Exception {
-		settingsService.changeMode(Mode.SALON);
-		postItem(json("categoryId", hotDrinks, "name", "Pizza", "type", "food", "price", "18.00"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.type").value("Only services can be created in salon mode"));
+	void foodIsAcceptedInASalon() throws Exception {
+		// Spec menu-catalog, "Hair salon with drinks": item types no longer depend on a mode.
+		settingsService.applyTemplate(Template.SALON);
+		postItem(json("categoryId", hotDrinks, "name", "Espresso", "type", "drink", "price", "4.50"))
+			.andExpect(status().isCreated());
 	}
 
 	@Test
-	void serviceIsRejectedInEventMode() throws Exception {
+	void serviceIsAcceptedAtAnEvent() throws Exception {
 		postItem(json("categoryId", hotDrinks, "name", "Facial", "type", "service", "price", "120.00"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.type").value("Services are only available in salon mode"));
+			.andExpect(status().isCreated());
 	}
 
 	@Test
 	void invalidDurationIsRejected() throws Exception {
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 		for (int minutes : new int[] { 0, 900 }) {
 			postItem(json("categoryId", hotDrinks, "name", "Facial", "type", "service", "price", "120.00",
 					"durationMin", minutes))

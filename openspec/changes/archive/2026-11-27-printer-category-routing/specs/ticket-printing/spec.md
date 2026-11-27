@@ -7,41 +7,6 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Printer configuration
-Admins SHALL configure printers. Each printer has a name, a network address (IP or hostname), the ePOS device ID, an active flag, a "tickets" switch with the menu categories whose lines it prints, and a "receipts" switch for invoice receipts. A category MAY be assigned to several printers, and several printers MAY have receipts on. Both switches SHALL be available in every venue mode. Admins SHALL be able to send a test print.
-
-#### Scenario: Configure bar printer
-- **WHEN** an admin adds the printer "Bar" at 192.168.1.50 with tickets on and the categories "Beer" and "Soft drinks"
-- **THEN** future lines of "Beer" and "Soft drinks" are routed to "Bar"
-
-#### Scenario: Test print
-- **WHEN** an admin triggers a test print for "Kitchen"
-- **THEN** the printer prints a test ticket, and the admin sees whether it succeeded or failed
-
-#### Scenario: Missing routing
-- **WHEN** the category "Pizza" is assigned only to inactive printers and an order with food lines of "Pizza" is sent
-- **THEN** the order is still saved, the tickets for those printers are marked failed with "no active printer", and the waiter is warned
-
-#### Scenario: Category on two printers
-- **WHEN** an admin assigns the category "Pizza" to both "Kitchen" and "Pass"
-- **THEN** the system accepts it, and both printers list "Pizza"
-
-#### Scenario: Configure a salon receipt printer
-- **WHEN** an admin in salon mode adds the printer "Counter" at 192.168.1.60 with receipts on and tickets off
-- **THEN** the printer is saved, and future invoice receipts are printed on "Counter"
-
-#### Scenario: Second active receipt printer accepted
-- **WHEN** an admin activates a second printer with receipts on
-- **THEN** the system accepts it, and both printers print future receipts
-
-#### Scenario: Ticket printer in salon mode
-- **WHEN** an admin in salon mode adds a printer with tickets on and the category "Hair"
-- **THEN** the printer is saved without a mode error
-
-#### Scenario: Deleted category
-- **WHEN** an admin deletes the category "Specials", which was assigned to "Kitchen"
-- **THEN** "Kitchen" no longer lists "Specials", and the printer is otherwise unchanged
-
 ### Requirement: Route lines by category
 For each sent order, the system SHALL create at most one ticket per printer, holding the order's lines whose category is assigned to that printer. A line SHALL be printed on every active printer that has tickets on and its category assigned. A line whose category is assigned to no printer SHALL NOT be printed, and no error SHALL be shown. If all printers assigned to a line's category are inactive, the system SHALL create a `failed` ticket "no active printer" for each of them.
 
@@ -128,6 +93,41 @@ In salon mode, the invoice view SHALL show, for each printer that received the i
 
 ## ADDED Requirements
 
+### Requirement: Printers and category routing
+Admins SHALL configure printers. Each printer has a name, a network address (IP or hostname), the ePOS device ID, an active flag, a "tickets" switch with the menu categories whose lines it prints, and a "receipts" switch for invoice receipts. A category MAY be assigned to several printers, and several printers MAY have receipts on. Both switches SHALL be available in every venue mode. Admins SHALL be able to send a test print.
+
+#### Scenario: Configure bar printer
+- **WHEN** an admin adds the printer "Bar" at 192.168.1.50 with tickets on and the categories "Beer" and "Soft drinks"
+- **THEN** future lines of "Beer" and "Soft drinks" are routed to "Bar"
+
+#### Scenario: Test print
+- **WHEN** an admin triggers a test print for "Kitchen"
+- **THEN** the printer prints a test ticket, and the admin sees whether it succeeded or failed
+
+#### Scenario: Missing routing
+- **WHEN** the category "Pizza" is assigned only to inactive printers and an order with food lines of "Pizza" is sent
+- **THEN** the order is still saved, the tickets for those printers are marked failed with "no active printer", and the waiter is warned
+
+#### Scenario: Category on two printers
+- **WHEN** an admin assigns the category "Pizza" to both "Kitchen" and "Pass"
+- **THEN** the system accepts it, and both printers list "Pizza"
+
+#### Scenario: Configure a salon receipt printer
+- **WHEN** an admin in salon mode adds the printer "Counter" at 192.168.1.60 with receipts on and tickets off
+- **THEN** the printer is saved, and future invoice receipts are printed on "Counter"
+
+#### Scenario: Second active receipt printer accepted
+- **WHEN** an admin activates a second printer with receipts on
+- **THEN** the system accepts it, and both printers print future receipts
+
+#### Scenario: Ticket printer in salon mode
+- **WHEN** an admin in salon mode adds a printer with tickets on and the category "Hair"
+- **THEN** the printer is saved without a mode error
+
+#### Scenario: Deleted category
+- **WHEN** an admin deletes the category "Specials", which was assigned to "Kitchen"
+- **THEN** "Kitchen" no longer lists "Specials", and the printer is otherwise unchanged
+
 ### Requirement: Categories that are not printed
 The printer configuration SHALL show the menu categories that no active printer with tickets on prints, as neutral information and not as an error.
 
@@ -140,6 +140,10 @@ The printer configuration SHALL show the menu categories that no active printer 
 - **THEN** the printer page lists "Soft drinks" under the categories that are not printed
 
 ## REMOVED Requirements
+
+### Requirement: Printer configuration
+**Reason**: Replaced by category routing. A printer now has a "tickets" switch with the categories it prints and a "receipts" switch instead of one item type, and several active receipt printers are allowed, so the former scenario "Second active receipt printer rejected" no longer holds.
+**Migration**: See "Printers and category routing" in this capability. Migration V15 converts each printer's item type into category assignments and its receipt purpose into the "receipts" switch.
 
 ### Requirement: No production tickets for services
 **Reason**: Whether a line is printed now depends only on its category's printer assignment, not on the item type.

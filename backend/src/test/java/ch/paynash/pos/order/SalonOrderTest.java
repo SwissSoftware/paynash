@@ -17,7 +17,7 @@ import com.jayway.jsonpath.JsonPath;
 
 import ch.paynash.pos.common.IdempotencyFilter;
 import ch.paynash.pos.menu.ItemType;
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Template;
 
 /**
  * Orders in salon mode: for a customer, only services, no tickets (add-salon-mode, specs order-taking and
@@ -39,7 +39,7 @@ class SalonOrderTest extends OrderTestSupport {
 	void setUp() throws Exception {
 		boss = adminToken();
 		staff = waiterToken();
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 		long face = category("Face");
 		facial = menu.insertItem(face, "Facial", ItemType.SERVICE, 12000, null, true, 60, 81);
 		tint = menu.insertItem(face, "Eyebrow tint", ItemType.SERVICE, 2500, null, true, null, 26);
@@ -73,9 +73,9 @@ class SalonOrderTest extends OrderTestSupport {
 	}
 
 	@Test
-	void tableIsRejectedInSalonMode() throws Exception {
+	void tableIsRejectedWhileTablesAreOff() throws Exception {
 		send(staff, "12", line(facial, 1)).andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.tableLabel").value("Salon orders have no table"));
+			.andExpect(jsonPath("$.errors.tableLabel").value("Tables are switched off, so orders have no table"));
 	}
 
 	@Test
@@ -88,10 +88,11 @@ class SalonOrderTest extends OrderTestSupport {
 	}
 
 	@Test
-	void onlyServicesCanBeConfirmed() throws Exception {
+	void servicesAndDrinksCanBeMixed() throws Exception {
+		// Spec order-taking, "Service and drink in one order".
 		long cola = item(category("Drinks"), "Cola", ItemType.DRINK, 450);
-		confirm(staff, laura, line(cola, 1)).andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.lines").value("Cola is not a service"));
+		confirm(staff, laura, line(facial, 1), line(cola, 1)).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.lines.length()").value(2));
 	}
 
 	@Test
@@ -105,12 +106,43 @@ class SalonOrderTest extends OrderTestSupport {
 	}
 
 	@Test
-	void eventModeRejectsCustomersAndServices() throws Exception {
-		settingsService.changeMode(Mode.EVENT);
+	void customersAreRejectedWhileCustomersAreOff() throws Exception {
+		settingsService.applyTemplate(Template.EVENT);
+		postJson(staff, "/orders", "{\"tableLabel\":\"12\",\"customerId\":" + laura + ",\"lines\":["
+				+ line(facial, 1) + "]}")
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors.customerId").value("Customers are switched off, so orders have no customer"));
+		send(staff, "12", line(facial, 1)).andExpect(status().isCreated());
+	}
+
+	// --- order target per features (spec order-taking, design D3)
+
+	@Test
+	void counterSaleHasNeitherTableNorCustomer() throws Exception {
+		settingsService.applyTemplate(Template.COUNTER);
+		postJson(staff, "/orders", "{\"lines\":[" + line(tint, 2) + "]}").andExpect(status().isCreated())
+			.andExpect(jsonPath("$.tableLabel").doesNotExist())
+			.andExpect(jsonPath("$.customerId").doesNotExist());
+	}
+
+	@Test
+	void restaurantOrderHasATableAndAnOptionalCustomer() throws Exception {
+		settingsService.applyTemplate(Template.RESTAURANT);
+		send(staff, "12", line(facial, 1)).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.tableLabel").value("12"));
+		postJson(staff, "/orders", "{\"tableLabel\":\"12\",\"customerId\":" + laura + ",\"lines\":["
+				+ line(facial, 1) + "]}")
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.tableLabel").value("12"))
+			.andExpect(jsonPath("$.customerId").value(laura));
+	}
+
+	@Test
+	void missingTableIsRejectedWhileTablesAreOn() throws Exception {
+		settingsService.applyTemplate(Template.RESTAURANT);
 		confirm(staff, laura, line(facial, 1)).andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.customerId").value("Orders in event mode have no customer"));
-		send(staff, "12", line(facial, 1)).andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.lines").value("Facial is a service and can only be sold in salon mode"));
+			.andExpect(jsonPath("$.errors.tableLabel").value("Table is required"));
+		assertThat(orderCount()).isZero();
 	}
 
 	// --- no tickets (5.2)

@@ -248,6 +248,10 @@ void main() {
     testWidgets('a salon adds a receipt printer', (tester) async {
       final (app, _, _) = await start(tester, admin: true);
       app.backend.salon.useSalon();
+      // The app picks up the changed features when it comes back to the foreground.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
       await open(tester, 'Printers');
 
       await tester.tap(find.byKey(const Key('printer-add')));

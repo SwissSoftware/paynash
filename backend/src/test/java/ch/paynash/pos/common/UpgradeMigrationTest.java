@@ -113,7 +113,7 @@ class UpgradeMigrationTest {
 		var result = flyway(null).migrate();
 
 		assertThat(result.success).isTrue();
-		assertThat(one("SELECT mode FROM installation_settings")).isEqualTo("event");
+		assertThat(one("SELECT template FROM installation_settings")).isEqualTo("event");
 		assertThat(one("SELECT vat_rate_permille::text FROM menu_item")).isEqualTo("81");
 		assertThat(one("SELECT vat_rate_snapshot::text FROM order_line")).isEqualTo("81");
 		assertThat(one("SELECT table_label FROM orders")).isEqualTo("12");
@@ -164,6 +164,79 @@ class UpgradeMigrationTest {
 		assertThat(rows("SELECT order_line_id || ':' || printer_id FROM order_line_printer ORDER BY order_line_id"))
 			.containsExactly("1:1", "2:2");
 		assertThat(rows("SELECT count(*)::text FROM print_job")).containsExactly("3");
+		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
+	}
+
+	/** Spec business-features, "Existing installations keep their behaviour": event installation. */
+	@Test
+	void businessFeaturesMigrationTurnsEventModeIntoEventTemplate() {
+		jdbc.sql("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE").update();
+		flyway("15").migrate();
+		in(SCHEMA, """
+				INSERT INTO staff (id, username, display_name, role, pin_hash) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'anna', 'Anna', 'waiter', 'h');
+				INSERT INTO dining_table (number, name) VALUES ('12', 'Terrace');
+				INSERT INTO orders (id, table_label, sent_by, sent_at) OVERRIDING SYSTEM VALUE
+				    VALUES (1, '12', 1, now());
+				""");
+
+		var result = flyway(null).migrate();
+
+		assertThat(result.success).isTrue();
+		assertThat(one("""
+				SELECT template || ':' || feature_tables || ':' || feature_stations || ':' || feature_customers || ':'
+				    || feature_invoices || ':' || feature_sales_report FROM installation_settings"""))
+			.isEqualTo("event:true:true:false:false:false");
+		assertThat(one("SELECT term_waiter || '/' || term_items || '/' || term_send FROM installation_settings"))
+			.isEqualTo("Waiter/Menu/Send");
+		assertThat(one("SELECT table_label FROM orders")).isEqualTo("12");
+		assertThat(rows("SELECT number FROM dining_table")).containsExactly("12");
+		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
+	}
+
+	/** Spec business-features, "Existing installations keep their behaviour": salon installation. */
+	@Test
+	void businessFeaturesMigrationTurnsSalonModeIntoSalonTemplateAndRelaxesOrderTarget() {
+		jdbc.sql("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE").update();
+		flyway("15").migrate();
+		in(SCHEMA, """
+				UPDATE installation_settings SET mode = 'salon', business_name = 'Aurora';
+				INSERT INTO staff (id, username, display_name, role, pin_hash) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 'anna', 'Anna', 'waiter', 'h');
+				INSERT INTO customer (id, first_name, last_name) OVERRIDING SYSTEM VALUE VALUES (1, 'Laura', 'Meier');
+				INSERT INTO orders (id, customer_id, sent_by, sent_at) OVERRIDING SYSTEM VALUE
+				    VALUES (1, 1, 1, now());
+				""");
+
+		var result = flyway(null).migrate();
+
+		assertThat(result.success).isTrue();
+		assertThat(one("""
+				SELECT template || ':' || feature_tables || ':' || feature_stations || ':' || feature_customers || ':'
+				    || feature_invoices || ':' || feature_sales_report FROM installation_settings"""))
+			.isEqualTo("salon:false:false:true:true:true");
+		assertThat(one("SELECT term_waiter || '/' || term_items || '/' || term_send FROM installation_settings"))
+			.isEqualTo("Staff/Services/Confirm");
+		assertThat(one("SELECT business_name FROM installation_settings")).isEqualTo("Aurora");
+		assertThat(one("SELECT customer_id::text FROM orders")).isEqualTo("1");
+		// Counter sales and table orders with a customer are now possible (design D3).
+		in(SCHEMA, """
+				INSERT INTO orders (id, sent_by, sent_at) OVERRIDING SYSTEM VALUE VALUES (2, 1, now());
+				INSERT INTO orders (id, table_label, customer_id, sent_by, sent_at) OVERRIDING SYSTEM VALUE
+				    VALUES (3, '5', 1, 1, now());
+				""");
+		assertThat(rows("SELECT count(*)::text FROM orders")).containsExactly("3");
+		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
+	}
+
+	@Test
+	void businessFeaturesRejectInvoicesWithoutCustomers() {
+		jdbc.sql("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE").update();
+		flyway(null).migrate();
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> in(SCHEMA, "UPDATE installation_settings SET feature_invoices = TRUE;"))
+			.hasMessageContaining("installation_settings_invoices_need_customers");
+		jdbc.sql("SET search_path TO public").update();
 		jdbc.sql("DROP SCHEMA " + SCHEMA + " CASCADE").update();
 	}
 

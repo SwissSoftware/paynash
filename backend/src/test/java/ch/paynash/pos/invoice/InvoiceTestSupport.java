@@ -14,7 +14,7 @@ import com.jayway.jsonpath.JsonPath;
 
 import ch.paynash.pos.menu.ItemType;
 import ch.paynash.pos.menu.MenuRepository;
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Template;
 import ch.paynash.pos.settings.SettingsService;
 import ch.paynash.pos.support.IntegrationTest;
 
@@ -38,7 +38,7 @@ abstract class InvoiceTestSupport extends IntegrationTest {
 	void setUpSalon() throws Exception {
 		boss = adminToken();
 		staff = waiterToken();
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 		settingsService.updateDetails(details(false, null));
 		long face = menu.insertCategory("Face");
 		facial = menu.insertItem(face, "Facial", ItemType.SERVICE, 12000, null, true, 60, 81);

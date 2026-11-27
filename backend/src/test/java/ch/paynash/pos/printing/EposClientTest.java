@@ -91,6 +91,16 @@ class EposClientTest {
 		}
 	}
 
+	/** Epson's web server closes the connection on an h2c upgrade request (fix-epos-http-version). */
+	@Test
+	void talksPlainHttp11WithoutUpgrade() throws Exception {
+		try (var fake = new FakeEposPrinter()) {
+			assertThat(client.print(printer(fake.address()), ticket())).isInstanceOf(Result.Printed.class);
+			assertThat(fake.headers).hasSize(1)
+				.allSatisfy(h -> assertThat(h).doesNotContainKeys("Upgrade", "Http2-settings", "HTTP2-Settings"));
+		}
+	}
+
 	@Test
 	void missingAnswerIsUnclear() throws Exception {
 		try (var fake = new FakeEposPrinter()) {

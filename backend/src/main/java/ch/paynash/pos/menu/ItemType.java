@@ -4,8 +4,8 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * Decides which printer gets a line (spec ticket-printing). Services are sold in salon mode and never go to a
- * production printer (add-salon-mode).
+ * The kind of a menu item. Items of all types can be mixed in one menu and one order (spec menu-catalog). Which
+ * printer gets a line follows its category, not its type (spec ticket-printing, "Route lines by category").
  */
 public enum ItemType {
 

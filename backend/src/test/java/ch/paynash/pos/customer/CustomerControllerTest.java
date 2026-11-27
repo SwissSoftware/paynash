@@ -20,7 +20,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.jayway.jsonpath.JsonPath;
 
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Template;
 import ch.paynash.pos.support.IntegrationTest;
 
 class CustomerControllerTest extends IntegrationTest {
@@ -33,7 +33,7 @@ class CustomerControllerTest extends IntegrationTest {
 	void setUp() throws Exception {
 		admin = adminToken();
 		staff = waiterToken();
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 	}
 
 	// --- create and edit
@@ -84,10 +84,10 @@ class CustomerControllerTest extends IntegrationTest {
 
 	@Test
 	void customersAreOnlyAvailableInSalonMode() throws Exception {
-		settingsService.changeMode(Mode.EVENT);
+		settingsService.applyTemplate(Template.EVENT);
 		mvc.perform(get("/customers").header(HttpHeaders.AUTHORIZATION, bearer(staff)))
 			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("wrong_mode"));
+			.andExpect(jsonPath("$.code").value("feature_disabled"));
 	}
 
 	// --- search

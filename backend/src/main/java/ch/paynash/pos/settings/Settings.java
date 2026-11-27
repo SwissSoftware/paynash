@@ -1,8 +1,18 @@
 package ch.paynash.pos.settings;
 
-/** The single settings row (design D1). Business details are null until an admin enters them. */
-public record Settings(Mode mode, String businessName, String street, String postalCode, String city, String phone,
-		String email, String website, String iban, String accountHolder, boolean vatEnabled, String vatUid) {
+import java.util.Set;
+
+/**
+ * The single settings row: features, template, and terms (change configurable-business-features, design D1) and the
+ * business details (spec venue-mode). Business details are null until an admin enters them.
+ */
+public record Settings(Set<Feature> features, Template template, Terms terms, String businessName, String street,
+		String postalCode, String city, String phone, String email, String website, String iban, String accountHolder,
+		boolean vatEnabled, String vatUid) {
+
+	public boolean has(Feature feature) {
+		return features.contains(feature);
+	}
 
 	/** Names of the business details that invoices need but are still missing (spec venue-mode). */
 	public java.util.List<String> missingInvoiceDetails() {

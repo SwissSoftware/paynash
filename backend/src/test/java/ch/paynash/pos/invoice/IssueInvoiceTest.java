@@ -117,11 +117,12 @@ class IssueInvoiceTest extends InvoiceTestSupport {
 	}
 
 	@Test
-	void invoicingIsOnlyAvailableInSalonMode() throws Exception {
-		jdbc.sql("UPDATE installation_settings SET mode = 'event'").update();
+	void invoicingIsOnlyAvailableWhileInvoicesAreOn() throws Exception {
+		jdbc.sql("UPDATE installation_settings SET feature_sales_report = FALSE, feature_invoices = FALSE").update();
 		settingsService.clearCache();
 		issue(staff, 1).andExpect(status().isConflict())
-			.andExpect(jsonPath("$.detail").value("This function is only available in salon mode"));
+			.andExpect(jsonPath("$.code").value("feature_disabled"))
+			.andExpect(jsonPath("$.detail").value("Invoices are switched off"));
 	}
 
 	// --- block corrections while invoiced (6.3)

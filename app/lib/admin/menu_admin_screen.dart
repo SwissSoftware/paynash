@@ -8,21 +8,21 @@ import '../settings/settings_models.dart';
 import 'menu_admin_api.dart';
 
 /// Admin: categories on the left, the selected category's items on the right.
-/// In salon mode the items are services with a duration (spec menu-catalog).
+/// Items of all types (food, drink, service) can be mixed (spec menu-catalog).
 class MenuAdminScreen extends StatefulWidget {
   const MenuAdminScreen({
     super.key,
     required this.api,
     this.pickImage = pickImageFromDevice,
-    this.mode = VenueMode.event,
+    this.terms = Terms.standard,
     this.vatEnabled = false,
   });
 
   final MenuAdminApi api;
   final ImagePicker pickImage;
 
-  /// Salon mode offers only services, event mode only food and drinks.
-  final VenueMode mode;
+  /// The configured words for menu items (spec business-features).
+  final Terms terms;
 
   /// The VAT rate is shown and editable only while VAT is turned on.
   final bool vatEnabled;
@@ -77,13 +77,16 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
     final name = await showDialog<String>(
       context: context,
       builder: (_) => _NameDialog(
-          title: category == null ? 'Add category' : 'Rename category',
-          initial: category?.name),
+        title: category == null ? 'Add category' : 'Rename category',
+        initial: category?.name,
+      ),
     );
     if (name == null || name.trim().isEmpty) return;
-    await _run(() => category == null
-        ? widget.api.createCategory(name.trim())
-        : widget.api.renameCategory(category.id, name.trim()));
+    await _run(
+      () => category == null
+          ? widget.api.createCategory(name.trim())
+          : widget.api.renameCategory(category.id, name.trim()),
+    );
   }
 
   Future<void> _editItem([AdminItem? item]) async {
@@ -95,7 +98,7 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
         categoryId: item?.categoryId ?? _selectedId!,
         item: item,
         pickImage: widget.pickImage,
-        mode: widget.mode,
+        terms: widget.terms,
         vatEnabled: widget.vatEnabled,
       ),
     );
@@ -141,7 +144,9 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
                         key: Key('category-${c.id}'),
                         selected: c.id == _selectedId,
                         leading: ReorderableDragStartListener(
-                            index: i, child: const Icon(Icons.drag_indicator)),
+                          index: i,
+                          child: const Icon(Icons.drag_indicator),
+                        ),
                         title: Text(c.name),
                         onTap: () => setState(() => _selectedId = c.id),
                         trailing: PopupMenuButton<String>(
@@ -169,7 +174,7 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
                     key: const Key('item-add'),
                     onPressed: () => _editItem(),
                     icon: const Icon(Icons.add),
-                    label: Text('Add ${Terms(widget.mode).item.toLowerCase()}'),
+                    label: Text('Add ${widget.terms.item.toLowerCase()}'),
                   ),
                   body: items.isEmpty
                       ? const Center(child: Text('No items in this category yet.'))
@@ -186,18 +191,26 @@ class _MenuAdminScreenState extends State<MenuAdminScreen> {
                             for (final (index, item) in items.indexed)
                               ListTile(
                                 key: Key('item-${item.id}'),
-                                leading: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  ReorderableDragStartListener(
-                                      index: index, child: const Icon(Icons.drag_indicator)),
-                                  const SizedBox(width: 8),
-                                  _Thumbnail(item: item, url: widget.api.imageUrl),
-                                ]),
-                                title: Text(item.name,
-                                    style: item.active
-                                        ? null
-                                        : const TextStyle(decoration: TextDecoration.lineThrough)),
+                                leading: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ReorderableDragStartListener(
+                                      index: index,
+                                      child: const Icon(Icons.drag_indicator),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _Thumbnail(item: item, url: widget.api.imageUrl),
+                                  ],
+                                ),
+                                title: Text(
+                                  item.name,
+                                  style: item.active
+                                      ? null
+                                      : const TextStyle(decoration: TextDecoration.lineThrough),
+                                ),
                                 subtitle: Text(
-                                    'CHF ${item.price}${item.active ? '' : ' · inactive'}'),
+                                  'CHF ${item.price}${item.active ? '' : ' · inactive'}',
+                                ),
                                 trailing: ItemTypeBadge(item.type),
                                 onTap: () => _editItem(item),
                               ),
@@ -225,11 +238,14 @@ class _Thumbnail extends StatelessWidget {
         child: item.imageUrl == null
             ? ColoredBox(
                 color: item.type.color.withValues(alpha: 0.12),
-                child: Icon(item.type.icon, color: item.type.color))
-            : Image.network(url(item.imageUrl!),
+                child: Icon(item.type.icon, color: item.type.color),
+              )
+            : Image.network(
+                url(item.imageUrl!),
                 key: Key('thumb-${item.id}'),
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const Icon(Icons.broken_image)),
+                errorBuilder: (_, _, _) => const Icon(Icons.broken_image),
+              ),
       ),
     );
   }
@@ -262,9 +278,10 @@ class _NameDialogState extends State<_NameDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
-            key: const Key('category-save'),
-            onPressed: () => Navigator.pop(context, _name.text),
-            child: const Text('Save')),
+          key: const Key('category-save'),
+          onPressed: () => Navigator.pop(context, _name.text),
+          child: const Text('Save'),
+        ),
       ],
     );
   }
@@ -279,7 +296,7 @@ class ItemDialog extends StatefulWidget {
     required this.categoryId,
     required this.pickImage,
     this.item,
-    this.mode = VenueMode.event,
+    this.terms = Terms.standard,
     this.vatEnabled = false,
   });
 
@@ -288,7 +305,7 @@ class ItemDialog extends StatefulWidget {
   final int categoryId;
   final AdminItem? item;
   final ImagePicker pickImage;
-  final VenueMode mode;
+  final Terms terms;
   final bool vatEnabled;
 
   @override
@@ -300,10 +317,11 @@ class _ItemDialogState extends State<ItemDialog> {
   late final _price = TextEditingController(text: widget.item?.price);
   late final _description = TextEditingController(text: widget.item?.description);
   late int _categoryId = widget.categoryId;
-  bool get _salon => widget.mode == VenueMode.salon;
 
-  /// A salon only sells services, so the type is fixed there.
-  late ItemType? _type = widget.item?.type ?? (_salon ? ItemType.service : null);
+  /// Where the items are called services, a new item starts as a service.
+  bool get _services => widget.terms.items.toLowerCase().startsWith('service');
+
+  late ItemType? _type = widget.item?.type ?? (_services ? ItemType.service : null);
   late bool _active = widget.item?.active ?? true;
   late final _duration = TextEditingController(text: widget.item?.durationMin?.toString());
   late String _vatRate = widget.item?.vatRate ?? '8.1';
@@ -379,13 +397,18 @@ class _ItemDialogState extends State<ItemDialog> {
   Widget _preview() {
     final Widget image;
     if (_newImage != null) {
-      image = Image.memory(Uint8List.fromList(_newImage!.bytes),
-          key: const Key('image-preview'), fit: BoxFit.cover);
+      image = Image.memory(
+        Uint8List.fromList(_newImage!.bytes),
+        key: const Key('image-preview'),
+        fit: BoxFit.cover,
+      );
     } else if (!_removeImage && _saved?.imageUrl != null) {
-      image = Image.network(widget.api.imageUrl(_saved!.imageUrl!),
-          key: const Key('image-preview'),
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => const Icon(Icons.broken_image));
+      image = Image.network(
+        widget.api.imageUrl(_saved!.imageUrl!),
+        key: const Key('image-preview'),
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => const Icon(Icons.broken_image),
+      );
     } else {
       final type = _type ?? ItemType.food;
       image = ColoredBox(
@@ -418,16 +441,17 @@ class _ItemDialogState extends State<ItemDialog> {
                   onPressed: _busy
                       ? null
                       : () => setState(() {
-                            _newImage = null;
-                            _removeImage = true;
-                          }),
+                          _newImage = null;
+                          _removeImage = true;
+                        }),
                   child: const Text('Remove image'),
                 ),
-              Text('JPEG, PNG or WebP, max. 5 MB',
-                  style: Theme.of(context).textTheme.bodySmall),
+              Text('JPEG, PNG or WebP, max. 5 MB', style: Theme.of(context).textTheme.bodySmall),
               if (_fieldErrors['file'] != null)
-                Text(_fieldErrors['file']!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                Text(
+                  _fieldErrors['file']!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
             ],
           ),
         ),
@@ -441,7 +465,7 @@ class _ItemDialogState extends State<ItemDialog> {
     return AlertDialog(
       title: Text(
         widget.item == null
-            ? 'Add ${Terms(widget.mode).item.toLowerCase()}'
+            ? 'Add ${widget.terms.item.toLowerCase()}'
             : 'Edit ${widget.item!.name}',
       ),
       content: SizedBox(
@@ -457,22 +481,20 @@ class _ItemDialogState extends State<ItemDialog> {
                 key: const Key('item-name'),
                 controller: _name,
                 maxLength: 80,
-                decoration:
-                    InputDecoration(labelText: 'Name', errorText: _fieldErrors['name']),
+                decoration: InputDecoration(labelText: 'Name', errorText: _fieldErrors['name']),
               ),
-              if (!_salon) ...[
+              ...[
                 Text('Type', style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(height: 4),
                 SegmentedButton<ItemType>(
                   key: const Key('item-type'),
                   emptySelectionAllowed: true,
                   segments: [
-                    for (final t in [ItemType.food, ItemType.drink])
+                    for (final t in [ItemType.food, ItemType.drink, ItemType.service])
                       ButtonSegment(value: t, label: Text(t.label), icon: Icon(t.icon)),
                   ],
                   selected: {?_type},
-                  onSelectionChanged: (s) =>
-                      setState(() => _type = s.isEmpty ? _type : s.first),
+                  onSelectionChanged: (s) => setState(() => _type = s.isEmpty ? _type : s.first),
                 ),
               ],
               if (_fieldErrors['type'] != null)
@@ -488,7 +510,10 @@ class _ItemDialogState extends State<ItemDialog> {
                   FilteringTextInputFormatter.allow(RegExp(r'^\d{0,5}(\.\d{0,2})?')),
                 ],
                 decoration: InputDecoration(
-                    labelText: 'Price', prefixText: 'CHF ', errorText: _fieldErrors['price']),
+                  labelText: 'Price',
+                  prefixText: 'CHF ',
+                  errorText: _fieldErrors['price'],
+                ),
               ),
               if (_type == ItemType.service)
                 TextField(
@@ -497,16 +522,19 @@ class _ItemDialogState extends State<ItemDialog> {
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: InputDecoration(
-                      labelText: 'Duration (optional)',
-                      suffixText: 'min',
-                      errorText: _fieldErrors['durationMin']),
+                    labelText: 'Duration (optional)',
+                    suffixText: 'min',
+                    errorText: _fieldErrors['durationMin'],
+                  ),
                 ),
               if (widget.vatEnabled)
                 DropdownButtonFormField<String>(
                   key: const Key('item-vat-rate'),
                   initialValue: vatRates.contains(_vatRate) ? _vatRate : '8.1',
-                  decoration:
-                      InputDecoration(labelText: 'VAT rate', errorText: _fieldErrors['vatRate']),
+                  decoration: InputDecoration(
+                    labelText: 'VAT rate',
+                    errorText: _fieldErrors['vatRate'],
+                  ),
                   items: [
                     for (final r in vatRates) DropdownMenuItem(value: r, child: Text('$r %')),
                   ],
@@ -516,7 +544,9 @@ class _ItemDialogState extends State<ItemDialog> {
                 key: const Key('item-category'),
                 initialValue: _categoryId,
                 decoration: InputDecoration(
-                    labelText: 'Category', errorText: _fieldErrors['categoryId']),
+                  labelText: 'Category',
+                  errorText: _fieldErrors['categoryId'],
+                ),
                 items: [
                   for (final c in widget.categories)
                     DropdownMenuItem(value: c.id, child: Text(c.name)),
@@ -528,16 +558,17 @@ class _ItemDialogState extends State<ItemDialog> {
                 controller: _description,
                 maxLength: 200,
                 decoration: InputDecoration(
-                    labelText: 'Short description (optional)',
-                    errorText: _fieldErrors['description']),
+                  labelText: 'Short description (optional)',
+                  errorText: _fieldErrors['description'],
+                ),
               ),
               SwitchListTile(
                 key: const Key('item-active'),
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Active'),
-                subtitle: Text(_salon
-                    ? 'Inactive services are not offered to staff'
-                    : 'Inactive items are not offered to waiters'),
+                subtitle: Text(
+                  'Inactive ${widget.terms.items.toLowerCase()} are not offered when taking orders',
+                ),
                 value: _active,
                 onChanged: (v) => setState(() => _active = v),
               ),
@@ -548,12 +579,14 @@ class _ItemDialogState extends State<ItemDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(context, _saved != widget.item),
-            child: const Text('Cancel')),
+          onPressed: () => Navigator.pop(context, _saved != widget.item),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
-            key: const Key('item-save'),
-            onPressed: _busy ? null : _save,
-            child: const Text('Save')),
+          key: const Key('item-save'),
+          onPressed: _busy ? null : _save,
+          child: const Text('Save'),
+        ),
       ],
     );
   }

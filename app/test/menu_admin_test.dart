@@ -10,13 +10,13 @@ import 'support/fake_backend.dart';
 import 'support/test_image.dart';
 
 Future<FakeBackend> pumpAdmin(WidgetTester tester, void Function(FakeBackend) seed,
-    {ImagePicker? picker, VenueMode mode = VenueMode.event, bool vat = false}) async {
+    {ImagePicker? picker, bool salon = false, bool vat = false}) async {
   tester.view.physicalSize = const Size(1400, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final backend = FakeBackend()..addStaff('boss', 'admin', '1111');
   backend.sessions['t'] = backend.staff.first;
-  if (mode == VenueMode.salon) backend.salon.useSalon(vat: vat);
+  if (salon) backend.salon.useSalon(vat: vat);
   seed(backend);
   final api = MenuAdminApi(ApiClient(
       baseUrl: 'http://backend',
@@ -25,7 +25,10 @@ Future<FakeBackend> pumpAdmin(WidgetTester tester, void Function(FakeBackend) se
   await tester.pumpWidget(MaterialApp(
       home: Scaffold(
           body: MenuAdminScreen(
-              api: api, pickImage: picker ?? () async => null, mode: mode, vatEnabled: vat))));
+              api: api,
+              pickImage: picker ?? () async => null,
+              terms: salon ? const Terms(waiter: 'Staff', items: 'Services', send: 'Confirm') : Terms.standard,
+              vatEnabled: vat))));
   await tester.pumpAndSettle();
   return backend;
 }
@@ -149,18 +152,19 @@ void main() {
   });
 
   group('salon services', () {
-    testWidgets('admin creates a service with a duration and no type choice', (
+    testWidgets('admin creates a service with a duration; the type starts as service', (
       tester,
     ) async {
       final backend = await pumpAdmin(
         tester,
         (b) => b.addCategory('Face'),
-        mode: VenueMode.salon,
+        salon: true,
       );
       expect(find.text('Add service'), findsOneWidget);
       await tester.tap(find.byKey(const Key('item-add')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('item-type')), findsNothing);
+      // All types can be chosen; where items are called services, service is preselected.
+      expect(find.byKey(const Key('item-type')), findsOneWidget);
       expect(
         find.byKey(const Key('item-vat-rate')),
         findsNothing,
@@ -182,7 +186,7 @@ void main() {
       await pumpAdmin(
         tester,
         (b) => b.addCategory('Face'),
-        mode: VenueMode.salon,
+        salon: true,
       );
       await tester.tap(find.byKey(const Key('item-add')));
       await tester.pumpAndSettle();
@@ -201,7 +205,7 @@ void main() {
       final backend = await pumpAdmin(
         tester,
         (b) => b.addCategory('Face'),
-        mode: VenueMode.salon,
+        salon: true,
         vat: true,
       );
       await tester.tap(find.byKey(const Key('item-add')));
@@ -220,14 +224,15 @@ void main() {
       expect(backend.items.single['vatRate'], '2.6');
     });
 
-    testWidgets('event mode keeps food and drink without duration', (
+    testWidgets('event offers every type, a duration only for services', (
       tester,
     ) async {
       await pumpAdmin(tester, (b) => b.addCategory('Drinks'));
       await tester.tap(find.byKey(const Key('item-add')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('item-type')), findsOneWidget);
-      expect(find.text('Service'), findsNothing);
+      // Spec menu-catalog: item types no longer depend on a mode.
+      expect(find.text('Service'), findsOneWidget);
       expect(find.byKey(const Key('item-duration')), findsNothing);
     });
   });

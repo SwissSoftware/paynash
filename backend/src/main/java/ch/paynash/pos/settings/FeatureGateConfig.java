@@ -5,11 +5,11 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
-class ModeGateConfig implements WebMvcConfigurer {
+class FeatureGateConfig implements WebMvcConfigurer {
 
-	private final ModeGate gate;
+	private final FeatureGate gate;
 
-	ModeGateConfig(ModeGate gate) {
+	FeatureGateConfig(FeatureGate gate) {
 		this.gate = gate;
 	}
 

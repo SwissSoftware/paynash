@@ -24,17 +24,17 @@ import ch.paynash.pos.auth.AuthenticatedStaff;
 import ch.paynash.pos.common.Money;
 import ch.paynash.pos.common.VatRates;
 import ch.paynash.pos.printing.TicketView;
-import ch.paynash.pos.settings.Mode;
-import ch.paynash.pos.settings.RequiresMode;
+import ch.paynash.pos.settings.Feature;
+import ch.paynash.pos.settings.RequiresFeature;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-/** Invoices of salon orders (spec invoicing). Cancelling is admin-only. */
+/** Invoices of orders with a customer, while invoices are on (spec invoicing). Cancelling is admin-only. */
 @RestController
-@RequiresMode(Mode.SALON)
+@RequiresFeature(Feature.INVOICES)
 @Tag(name = "Invoices")
 public class InvoiceController {
 
@@ -121,8 +121,9 @@ public class InvoiceController {
 
 	@PostMapping("/orders/{orderId}/invoice")
 	@ResponseStatus(HttpStatus.CREATED)
-	@Operation(summary = "Issue the invoice of a confirmed salon order",
-			description = "Accepts an Idempotency-Key header. 409 if business details are missing (missingDetails), "
+	@Operation(summary = "Issue the invoice of a confirmed order with a customer",
+			description = "Accepts an Idempotency-Key header. 409 if business details are missing (missingDetails), the order has no "
+					+ "customer, "
 					+ "the order is voided, has no lines left, or already has an invoice (invoiceId, invoiceNumber).")
 	public InvoiceView issue(@PathVariable long orderId, @AuthenticationPrincipal AuthenticatedStaff current) {
 		return view(service.issue(orderId, current));

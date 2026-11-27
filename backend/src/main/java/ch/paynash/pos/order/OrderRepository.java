@@ -22,7 +22,7 @@ public class OrderRepository {
 			     ELSE trim(coalesce(cu.first_name, '') || ' ' || coalesce(cu.last_name, '')) END""";
 
 	/**
-	 * The invoice an order shows (add-salon-mode, "Order history in salon mode"): the one that is not cancelled, or
+	 * The invoice an order shows (spec order-taking, "Order history with customers and invoices"): the one that is not cancelled, or
 	 * else the latest cancelled one. {@code o} is the order alias.
 	 */
 	static final String SHOWN_INVOICE_SQL = """

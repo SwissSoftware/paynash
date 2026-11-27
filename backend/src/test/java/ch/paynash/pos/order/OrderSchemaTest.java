@@ -75,21 +75,19 @@ class OrderSchemaTest extends IntegrationTest {
 	}
 
 	@Test
-	void orderBelongsToATableOrACustomerButNotBoth() {
+	/** A table, a customer, both, or neither; the features decide at send time (design D3). */
+	void orderMayHaveATableACustomerBothOrNeither() {
 		long customer = jdbc.sql("INSERT INTO customer (last_name) VALUES ('Meier') RETURNING id")
 			.query(Long.class)
 			.single();
 		jdbc.sql("INSERT INTO orders (customer_id, sent_by, sent_at) VALUES (?, ?, now())")
 			.params(customer, waiter)
 			.update();
-		assertThatThrownBy(() -> jdbc.sql("INSERT INTO orders (sent_by, sent_at) VALUES (?, now())")
-			.param(waiter)
-			.update()).isInstanceOf(DataIntegrityViolationException.class);
-		assertThatThrownBy(
-				() -> jdbc.sql("INSERT INTO orders (table_label, customer_id, sent_by, sent_at) VALUES ('12', ?, ?, now())")
-					.params(customer, waiter)
-					.update())
-			.isInstanceOf(DataIntegrityViolationException.class);
+		jdbc.sql("INSERT INTO orders (sent_by, sent_at) VALUES (?, now())").param(waiter).update();
+		jdbc.sql("INSERT INTO orders (table_label, customer_id, sent_by, sent_at) VALUES ('12', ?, ?, now())")
+			.params(customer, waiter)
+			.update();
+		assertThat(jdbc.sql("SELECT count(*) FROM orders").query(Long.class).single()).isEqualTo(3);
 	}
 
 	@Test

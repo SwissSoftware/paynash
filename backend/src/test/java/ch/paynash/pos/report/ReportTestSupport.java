@@ -4,7 +4,7 @@ import java.time.LocalDate;
 
 import org.junit.jupiter.api.BeforeEach;
 
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Template;
 import ch.paynash.pos.support.IntegrationTest;
 
 /**
@@ -40,7 +40,7 @@ abstract class ReportTestSupport extends IntegrationTest {
 	void setUpData() throws Exception {
 		boss = adminToken();
 		staff = waiterToken();
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 		staffId = staffRepository.findByUsername("anna").orElseThrow().id();
 		long category = jdbc.sql("INSERT INTO category (name) VALUES ('Face') RETURNING id").query(Long.class).single();
 		item = jdbc.sql("INSERT INTO menu_item (category_id, name, type, price_rappen) VALUES (?, 'X', 'service', 0) "

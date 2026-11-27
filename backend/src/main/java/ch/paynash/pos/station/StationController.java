@@ -25,8 +25,8 @@ import ch.paynash.pos.printing.PrintJobs;
 import ch.paynash.pos.printing.PrinterState;
 import ch.paynash.pos.printing.Ticket;
 import ch.paynash.pos.printing.TicketView;
-import ch.paynash.pos.settings.Mode;
-import ch.paynash.pos.settings.RequiresMode;
+import ch.paynash.pos.settings.Feature;
+import ch.paynash.pos.settings.RequiresFeature;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -37,7 +37,7 @@ import jakarta.validation.constraints.NotNull;
  * (design D8).
  */
 @RestController
-@RequiresMode(Mode.EVENT)
+@RequiresFeature(Feature.STATIONS)
 @RequestMapping("/station")
 @Tag(name = "Station")
 public class StationController {

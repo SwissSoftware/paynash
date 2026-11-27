@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Printer configuration
+### Requirement: Printers and category routing
 Admins SHALL configure printers. Each printer has a name, a network address (IP or hostname), the ePOS device ID, an active flag, a "tickets" switch with the menu categories whose lines it prints, and a "receipts" switch for invoice receipts. A category MAY be assigned to several printers, and several printers MAY have receipts on. The "tickets" switch SHALL be available with any features. The "receipts" switch SHALL be shown only while `invoices` is on. Admins SHALL be able to send a test print.
 
 #### Scenario: Configure bar printer
@@ -21,16 +21,16 @@ Admins SHALL configure printers. Each printer has a name, a network address (IP 
 - **WHEN** an admin assigns the category "Pizza" to both "Kitchen" and "Pass"
 - **THEN** the system accepts it, and both printers list "Pizza"
 
-#### Scenario: Configure a receipt printer
-- **WHEN** an admin with `invoices` on adds the printer "Counter" at 192.168.1.60 with receipts on and tickets off
+#### Scenario: Configure a salon receipt printer
+- **WHEN** an admin of a salon with `invoices` on adds the printer "Counter" at 192.168.1.60 with receipts on and tickets off
 - **THEN** the printer is saved, and future invoice receipts are printed on "Counter"
 
 #### Scenario: Second active receipt printer accepted
 - **WHEN** an admin activates a second printer with receipts on
 - **THEN** the system accepts it, and both printers print future receipts
 
-#### Scenario: Ticket printer without tables
-- **WHEN** an admin with `tables` off adds a printer with tickets on and the category "Hair"
+#### Scenario: Ticket printer in salon mode
+- **WHEN** an admin of a salon with `tables` off adds a printer with tickets on and the category "Hair"
 - **THEN** the printer is saved, and lines of "Hair" print tickets on it
 
 #### Scenario: Deleted category

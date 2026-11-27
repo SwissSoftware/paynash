@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -19,12 +20,11 @@ import ch.paynash.pos.common.TableLabels;
 import ch.paynash.pos.customer.Customer;
 import ch.paynash.pos.customer.CustomerRepository;
 import ch.paynash.pos.menu.Category;
-import ch.paynash.pos.menu.ItemType;
 import ch.paynash.pos.menu.MenuItem;
 import ch.paynash.pos.menu.MenuRepository;
 import ch.paynash.pos.printing.PrintJob;
 import ch.paynash.pos.printing.PrintJobRepository;
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Feature;
 import ch.paynash.pos.settings.SettingsService;
 
 /**
@@ -65,7 +65,7 @@ public class OrderService {
 	}
 
 	/** An order with everything the order history shows, including its tickets. */
-	/** {@code invoice} is the invoice a salon order shows, or null (spec order-taking, salon mode). */
+	/** {@code invoice} is the invoice an order with a customer shows, or null (spec order-taking). */
 	public record OrderDetail(Order order, List<OrderLine> lines, List<PrintJob> tickets,
 			OrderRepository.InvoiceRef invoice) {
 
@@ -101,18 +101,33 @@ public class OrderService {
 	 */
 	@Transactional
 	public OrderDetail send(String tableLabel, Long customerId, List<NewLine> lines, AuthenticatedStaff staff) {
-		// Shared lock: a mode change waits for this send, and this send waits for a running mode change (venue-mode).
-		boolean salon = settings.lockModeForOrder() == Mode.SALON;
+		// Shared lock: a feature change waits for this send, and this send waits for a running feature change
+		// (change configurable-business-features, design D3).
+		Set<Feature> features = settings.lockFeaturesForOrder();
+		boolean tables = features.contains(Feature.TABLES);
+		boolean withCustomers = features.contains(Feature.CUSTOMERS);
+		boolean hasLabel = tableLabel != null && !tableLabel.isBlank();
+		// Order target (spec order-taking, "Create and send an order" and "Confirm an order for a customer"): a table
+		// label exactly while tables are on; a customer required while customers are on and tables off, optional while
+		// both are on, and not allowed while customers are off.
 		String label = null;
+		if (tables) {
+			if (!hasLabel) {
+				throw ApiException.validation("tableLabel", "Table is required");
+			}
+			label = TableLabels.normalize(tableLabel, "tableLabel", "Table");
+		}
+		else if (hasLabel) {
+			throw ApiException.validation("tableLabel", "Tables are switched off, so orders have no table");
+		}
 		Customer customer = null;
-		if (salon) {
-			// Salon orders belong to a customer, not a table (spec order-taking, "Confirm an order for a customer").
-			if (tableLabel != null && !tableLabel.isBlank()) {
-				throw ApiException.validation("tableLabel", "Salon orders have no table");
-			}
-			if (customerId == null) {
-				throw ApiException.validation("customerId", "Customer is required");
-			}
+		if (!withCustomers && customerId != null) {
+			throw ApiException.validation("customerId", "Customers are switched off, so orders have no customer");
+		}
+		if (withCustomers && !tables && customerId == null) {
+			throw ApiException.validation("customerId", "Customer is required");
+		}
+		if (customerId != null) {
 			customer = customers.lockForOrder(customerId)
 				.orElseThrow(() -> ApiException.validation("customerId", "Customer does not exist"));
 			if (!customer.active()) {
@@ -120,27 +135,15 @@ public class OrderService {
 					.with("inactiveCustomerId", customer.id());
 			}
 		}
-		else {
-			if (customerId != null) {
-				throw ApiException.validation("customerId", "Orders in event mode have no customer");
-			}
-			if (tableLabel == null || tableLabel.isBlank()) {
-				throw ApiException.validation("tableLabel", "Table is required");
-			}
-			label = TableLabels.normalize(tableLabel, "tableLabel", "Table");
-		}
 		if (lines == null || lines.isEmpty()) {
 			throw ApiException.validation("lines", "The order has no lines");
 		}
 		Map<Long, MenuItem> items = new HashMap<>();
 		List<MenuItem> inactive = new ArrayList<>();
 		for (NewLine line : lines) {
+			// Items of all types may be mixed in one order (spec order-taking, "Service lines").
 			MenuItem item = items.computeIfAbsent(line.menuItemId(), id -> menu.findItem(id)
 				.orElseThrow(() -> ApiException.validation("lines", "Menu item " + id + " does not exist")));
-			if ((item.type() == ItemType.SERVICE) != salon) {
-				throw ApiException.validation("lines", salon ? item.name() + " is not a service"
-						: item.name() + " is a service and can only be sold in salon mode");
-			}
 			if (!item.active() && !inactive.contains(item)) {
 				inactive.add(item);
 			}

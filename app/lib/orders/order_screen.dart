@@ -27,25 +27,35 @@ const sendMaybeFailedMessage =
 /// this device, adjust quantities and notes, and send it in one go. After a
 /// successful send the screen is empty again; the order is in the history.
 ///
-/// In salon mode ([customerApi] and [invoiceApi] set) the order is for a
-/// customer instead of a table, and "Confirm and invoice" confirms it and
-/// issues its invoice in two steps, each with its own idempotency key (spec
-/// invoicing, "Confirm and invoice in one step").
+/// The order target follows the features (spec order-taking): a table while
+/// [tables] is on; a customer while [customerApi] is set (customers on),
+/// required when there are no tables and optional otherwise; neither for a
+/// counter sale. With [invoiceApi] set (invoices on) and a customer, the main
+/// button sends the order and issues its invoice in two steps, each with its
+/// own idempotency key (spec invoicing, "Confirm and invoice in one step").
 class OrderScreen extends StatefulWidget {
   const OrderScreen({
     super.key,
     required this.orderApi,
     required this.menuApi,
     required this.tablesApi,
+    this.tables = true,
     this.customerApi,
     this.invoiceApi,
+    this.sendTerm = 'Send',
   });
 
   final OrderApi orderApi;
   final MenuApi menuApi;
   final TablesApi tablesApi;
+
+  /// Whether orders belong to a table (feature `tables`).
+  final bool tables;
   final CustomerApi? customerApi;
   final InvoiceApi? invoiceApi;
+
+  /// The configured term for sending an order, e.g. "Send" or "Confirm".
+  final String sendTerm;
 
   @override
   State<OrderScreen> createState() => _OrderScreenState();
@@ -73,9 +83,15 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
   /// lost cannot create a second order (design D5).
   String? _sendKey;
 
-  bool get _salon => widget.customerApi != null;
+  bool get _withCustomers => widget.customerApi != null;
 
-  /// Salon mode: the customer of the order being built.
+  /// Without tables every order needs a customer while customers are on.
+  bool get _customerRequired => _withCustomers && !widget.tables;
+
+  /// Whether the main button also issues the invoice.
+  bool get _invoiceOnSend => widget.invoiceApi != null && (_customerRequired || _customer != null);
+
+  /// The customer of the order being built, while customers are on.
   CustomerData? _customer;
   String? _customerError;
 
@@ -98,8 +114,8 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
   Future<void> poll() async {
     try {
       final menu = await widget.menuApi.load();
-      // A salon has no tables (spec venue-mode).
-      final tables = _salon ? const <TableData>[] : await widget.tablesApi.active();
+      // No table list while tables are off (spec business-features).
+      final tables = widget.tables ? await widget.tablesApi.active() : const <TableData>[];
       if (mounted) {
         setState(() {
           _menu = menu;
@@ -178,32 +194,51 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
     });
   }
 
-  /// Salon: confirms the order and, with [invoice], issues its invoice. If the
-  /// order is confirmed but the invoice fails, the order stays confirmed and the
-  /// reason is shown; the invoice can be issued later from the history.
-  Future<void> _confirm({required bool invoice}) async {
+  /// Sends the order and, with [invoice], issues its invoice. If the order is
+  /// sent but the invoice fails, the order stays sent and the reason is shown;
+  /// the invoice can be issued later from the history.
+  Future<void> _send({required bool invoice}) async {
+    final table = _table.text.trim();
     final customer = _customer;
-    if (customer == null) {
-      setState(() => _customerError = 'Choose a customer');
-      return;
+    var valid = true;
+    if (widget.tables && !_tableLabel.hasMatch(table)) {
+      setState(() => _tableError = '1 to 10 letters or digits');
+      valid = false;
     }
+    if (_customerRequired && customer == null) {
+      setState(() => _customerError = 'Choose a customer');
+      valid = false;
+    }
+    if (!valid) return;
     setState(() {
+      _tableError = null;
       _customerError = null;
       _sendError = null;
       _sending = true;
     });
     final key = _sendKey ??= newIdempotencyKey();
     try {
-      final order = await widget.orderApi.confirm(customer.id, List.of(_lines), key);
+      final order = await widget.orderApi.send(
+        List.of(_lines),
+        key,
+        tableLabel: widget.tables ? table : null,
+        customerId: customer?.id,
+      );
       if (!mounted) return;
       setState(() {
         _lines.clear();
+        _table.clear();
         _customer = null;
         _sendKey = null;
         _offline = false;
       });
-      if (!invoice) {
-        _message('Order for ${customer.name} confirmed');
+      final what = order.tableLabel != null
+          ? 'Order for table ${order.tableLabel}'
+          : customer != null
+          ? 'Order for ${customer.name}'
+          : 'Order';
+      if (!invoice || customer == null) {
+        _message('$what ${_pastTense(widget.sendTerm)}');
         return;
       }
       try {
@@ -221,7 +256,8 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
       } on ApiError catch (e) {
         if (!mounted) return;
         setState(() {
-          _sendError = 'Order for ${customer.name} confirmed, but the invoice was not issued: '
+          _sendError =
+              '$what ${_pastTense(widget.sendTerm)}, but the invoice was not issued: '
               '${e.message}. Issue it from the history.';
         });
       }
@@ -239,48 +275,7 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
           _customerError = e.message;
         } else if (e.fieldErrors['customerId'] != null) {
           _customerError = e.fieldErrors['customerId'];
-        } else {
-          _sendError = e.isConnectionError ? sendMaybeFailedMessage : e.message;
-        }
-      });
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  Future<void> _send() async {
-    if (_salon) return _confirm(invoice: true);
-    final table = _table.text.trim();
-    if (!_tableLabel.hasMatch(table)) {
-      setState(() => _tableError = '1 to 10 letters or digits');
-      return;
-    }
-    setState(() {
-      _tableError = null;
-      _sendError = null;
-      _sending = true;
-    });
-    final key = _sendKey ??= newIdempotencyKey();
-    try {
-      final order = await widget.orderApi.send(table, List.of(_lines), key);
-      if (!mounted) return;
-      setState(() {
-        _lines.clear();
-        _table.clear();
-        _sendKey = null;
-        _offline = false;
-      });
-      _message('Order for table ${order.tableLabel} sent');
-    } on ApiError catch (e) {
-      if (!mounted) return;
-      final inactive = (e.details['inactiveMenuItemIds'] as List?)?.cast<int>();
-      if (inactive != null) {
-        _edit(() => _lines.removeWhere((l) => inactive.contains(l.item.id)));
-        await poll();
-      }
-      setState(() {
-        if (e.isConnectionError) _offline = true;
-        if (e.fieldErrors['tableLabel'] != null) {
+        } else if (e.fieldErrors['tableLabel'] != null) {
           _tableError = e.fieldErrors['tableLabel'];
         } else {
           // The answer may have been lost after the order arrived. The kept
@@ -293,6 +288,14 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
       if (mounted) setState(() => _sending = false);
     }
   }
+
+  /// "Send" -> "sent", "Confirm" -> "confirmed"; other terms read "done".
+  static String _pastTense(String term) => switch (term.toLowerCase()) {
+    'send' => 'sent',
+    'confirm' => 'confirmed',
+    'sell' => 'sold',
+    _ => 'done',
+  };
 
   void _message(String text) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
@@ -331,25 +334,30 @@ class _OrderScreenState extends State<OrderScreen> with Polling {
         compact: !wide,
         maxLinesHeight: maxLinesHeight,
         linesScroll: _linesScroll,
+        showTable: widget.tables,
         table: _table,
         tables: _tables,
         onPickTable: _pickTable,
         // A different table is a different order, like a changed line.
         onTableChanged: () => _edit(() {}),
-        customer: _salon
+        customer: _withCustomers
             ? _CustomerField(
                 customer: _customer,
+                required: _customerRequired,
                 error: _customerError,
                 onTap: _sending ? null : _pickCustomer,
+                onClear: _customerRequired || _sending ? null : () => _edit(() => _customer = null),
               )
             : null,
-        onConfirmOnly: _salon ? () => _confirm(invoice: false) : null,
+        sendTerm: widget.sendTerm,
+        invoiceOnSend: _invoiceOnSend,
+        onSendOnly: _invoiceOnSend ? () => _send(invoice: false) : null,
         tableError: _tableError,
         sendError: _sendError,
         lines: _lines,
         offline: _offline,
         sending: _sending,
-        onSend: _send,
+        onSend: () => _send(invoice: _invoiceOnSend),
         onQty: (line, qty) => _edit(() => line.qty = qty),
         onRemove: (line) => _edit(() => _lines.remove(line)),
         onNote: _editNote,
@@ -403,15 +411,27 @@ class _DraftPanel extends StatelessWidget {
     required this.onQty,
     required this.onRemove,
     required this.onNote,
+    required this.showTable,
+    required this.sendTerm,
+    required this.invoiceOnSend,
     this.customer,
-    this.onConfirmOnly,
+    this.onSendOnly,
   });
 
-  /// Salon mode: picks the customer instead of a table.
+  /// Whether the order needs a table (feature `tables`).
+  final bool showTable;
+
+  /// While customers are on: picks the order's customer.
   final Widget? customer;
 
-  /// Salon mode: confirms without issuing the invoice.
-  final VoidCallback? onConfirmOnly;
+  /// The configured term for sending, e.g. "Send" or "Confirm".
+  final String sendTerm;
+
+  /// The main button also issues the invoice.
+  final bool invoiceOnSend;
+
+  /// While [invoiceOnSend]: sends without issuing the invoice.
+  final VoidCallback? onSendOnly;
 
   /// Phone layout: the panel only takes the height it needs, and the table
   /// field and the table chips share one row.
@@ -453,7 +473,7 @@ class _DraftPanel extends StatelessWidget {
       textCapitalization: TextCapitalization.characters,
       inputFormatters: [LengthLimitingTextInputFormatter(10)],
     );
-    final picker = tables.isEmpty
+    final picker = !showTable || tables.isEmpty
         ? null
         : _TablePicker(
             tables: tables,
@@ -479,7 +499,9 @@ class _DraftPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (customer != null)
-          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: customer)
+          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: customer),
+        if (!showTable)
+          const SizedBox.shrink()
         else if (compact && picker != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 0, 4),
@@ -546,22 +568,24 @@ class _DraftPanel extends StatelessWidget {
                     )
                   : const Icon(Icons.send),
               label: Text(
-                customer != null
-                    ? (sending
-                          ? 'Confirming…'
-                          : (lines.isEmpty ? 'Nothing to confirm' : 'Confirm and invoice ($count)'))
-                    : (sending ? 'Sending…' : (lines.isEmpty ? 'Nothing to send' : 'Send ($count)')),
+                sending
+                    ? '$sendTerm…'
+                    : lines.isEmpty
+                    ? 'Nothing to ${sendTerm.toLowerCase()}'
+                    : invoiceOnSend
+                    ? '$sendTerm and invoice ($count)'
+                    : '$sendTerm ($count)',
               ),
             ),
           ),
         ),
-        if (onConfirmOnly != null)
+        if (onSendOnly != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: TextButton(
               key: const Key('order-confirm-only'),
-              onPressed: !offline && !sending && lines.isNotEmpty ? onConfirmOnly : null,
-              child: const Text('Confirm only, invoice later'),
+              onPressed: !offline && !sending && lines.isNotEmpty ? onSendOnly : null,
+              child: Text('$sendTerm only, invoice later'),
             ),
           ),
       ],
@@ -696,13 +720,22 @@ class _DraftLineTile extends StatelessWidget {
   }
 }
 
-/// Salon: the customer of the order, tap to pick another.
+/// The customer of the order, tap to pick another. Optional customers can be
+/// removed again.
 class _CustomerField extends StatelessWidget {
-  const _CustomerField({required this.customer, required this.error, required this.onTap});
+  const _CustomerField({
+    required this.customer,
+    required this.required,
+    required this.error,
+    required this.onTap,
+    this.onClear,
+  });
 
   final CustomerData? customer;
+  final bool required;
   final String? error;
   final VoidCallback? onTap;
+  final VoidCallback? onClear;
 
   @override
   Widget build(BuildContext context) {
@@ -711,10 +744,17 @@ class _CustomerField extends StatelessWidget {
       onTap: onTap,
       child: InputDecorator(
         decoration: InputDecoration(
-          labelText: 'Customer',
+          labelText: required ? 'Customer' : 'Customer (optional)',
           errorText: error,
           prefixIcon: const Icon(Icons.person),
-          suffixIcon: const Icon(Icons.search),
+          suffixIcon: customer != null && onClear != null
+              ? IconButton(
+                  key: const Key('order-customer-clear'),
+                  tooltip: 'No customer',
+                  icon: const Icon(Icons.clear),
+                  onPressed: onClear,
+                )
+              : const Icon(Icons.search),
           border: const OutlineInputBorder(),
         ),
         child: Text(

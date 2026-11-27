@@ -9,9 +9,14 @@ import 'printers_api.dart';
 /// several printers, and categories without a printer are not printed
 /// (change printer-category-routing).
 class PrintersScreen extends StatefulWidget {
-  const PrintersScreen({super.key, required this.api});
+  const PrintersScreen({super.key, required this.api, this.receipts = true});
 
   final PrintersApi api;
+
+  /// Whether the "receipts" switch is shown (feature `invoices`, spec
+  /// ticket-printing "Printers and category routing"). Hiding it keeps the
+  /// printer's stored setting.
+  final bool receipts;
 
   @override
   State<PrintersScreen> createState() => _PrintersScreenState();
@@ -47,7 +52,8 @@ class _PrintersScreenState extends State<PrintersScreen> {
   Future<void> _openForm([PrinterData? printer]) async {
     final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => _PrinterFormDialog(api: widget.api, printer: printer),
+      builder: (_) =>
+          _PrinterFormDialog(api: widget.api, printer: printer, receipts: widget.receipts),
     );
     if (saved == true) await _load();
   }
@@ -66,8 +72,7 @@ class _PrintersScreenState extends State<PrintersScreen> {
       if (mounted) setState(() => _testing = null);
     }
     if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -92,9 +97,7 @@ class _PrintersScreenState extends State<PrintersScreen> {
                   ListTile(
                     key: const Key('printer-unprinted'),
                     leading: const Icon(Icons.info_outline),
-                    title: Text(
-                      'Not printed: ${_unprinted.map((c) => c.name).join(', ')}',
-                    ),
+                    title: Text('Not printed: ${_unprinted.map((c) => c.name).join(', ')}'),
                     subtitle: const Text(
                       'No active printer prints these categories. Assign them to a printer '
                       'if their tickets are needed.',
@@ -112,9 +115,7 @@ class _PrintersScreenState extends State<PrintersScreen> {
                       p.name,
                       style: p.active
                           ? null
-                          : const TextStyle(
-                              decoration: TextDecoration.lineThrough,
-                            ),
+                          : const TextStyle(decoration: TextDecoration.lineThrough),
                     ),
                     subtitle: Text(
                       [
@@ -125,13 +126,8 @@ class _PrintersScreenState extends State<PrintersScreen> {
                           '${s.name}: ${s.lastSeenAt == null ? 'never connected' : 'last seen ${formatTime(s.lastSeenAt!)}'}',
                       ].join('\n'),
                       key: Key('printer-info-${p.name}'),
-                      style:
-                          p.active &&
-                              p.status != 'ready' &&
-                              p.status != 'unknown'
-                          ? TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                            )
+                      style: p.active && p.status != 'ready' && p.status != 'unknown'
+                          ? TextStyle(color: Theme.of(context).colorScheme.error)
                           : null,
                     ),
                     isThreeLine: true,
@@ -165,7 +161,9 @@ String _prints(PrinterData p) {
 }
 
 class _PrinterFormDialog extends StatefulWidget {
-  const _PrinterFormDialog({required this.api, this.printer});
+  const _PrinterFormDialog({required this.api, this.printer, required this.receipts});
+
+  final bool receipts;
 
   final PrintersApi api;
   final PrinterData? printer;
@@ -177,14 +175,10 @@ class _PrinterFormDialog extends StatefulWidget {
 class _PrinterFormDialogState extends State<_PrinterFormDialog> {
   late final _name = TextEditingController(text: widget.printer?.name);
   late final _address = TextEditingController(text: widget.printer?.address);
-  late final _deviceId = TextEditingController(
-    text: widget.printer?.deviceId ?? 'local_printer',
-  );
+  late final _deviceId = TextEditingController(text: widget.printer?.deviceId ?? 'local_printer');
   late bool _printsTickets = widget.printer?.printsTickets ?? true;
   late bool _printsReceipts = widget.printer?.printsReceipts ?? false;
-  late final Set<int> _categoryIds = {
-    for (final c in widget.printer?.categories ?? const []) c.id,
-  };
+  late final Set<int> _categoryIds = {for (final c in widget.printer?.categories ?? const []) c.id};
   late bool _active = widget.printer?.active ?? true;
   List<PrinterCategory>? _categories;
   Map<String, String> _fieldErrors = {};
@@ -290,9 +284,7 @@ class _PrinterFormDialogState extends State<_PrinterFormDialog> {
               SwitchListTile(
                 key: const Key('printer-tickets'),
                 title: const Text('Tickets'),
-                subtitle: const Text(
-                  'Prints the lines of the selected categories',
-                ),
+                subtitle: const Text('Prints the lines of the selected categories'),
                 value: _printsTickets,
                 onChanged: (v) => setState(() => _printsTickets = v),
               ),
@@ -303,18 +295,17 @@ class _PrinterFormDialogState extends State<_PrinterFormDialog> {
                   child: Text(
                     _fieldErrors['categoryIds']!,
                     key: const Key('printer-categories-error'),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
                 ),
-              SwitchListTile(
-                key: const Key('printer-receipts'),
-                title: const Text('Receipts'),
-                subtitle: const Text('Prints invoice receipts'),
-                value: _printsReceipts,
-                onChanged: (v) => setState(() => _printsReceipts = v),
-              ),
+              if (widget.receipts)
+                SwitchListTile(
+                  key: const Key('printer-receipts'),
+                  title: const Text('Receipts'),
+                  subtitle: const Text('Prints invoice receipts'),
+                  value: _printsReceipts,
+                  onChanged: (v) => setState(() => _printsReceipts = v),
+                ),
               SwitchListTile(
                 key: const Key('printer-active'),
                 title: const Text('Active'),
@@ -322,19 +313,13 @@ class _PrinterFormDialogState extends State<_PrinterFormDialog> {
                 onChanged: (v) => setState(() => _active = v),
               ),
               if (_error != null)
-                Text(
-                  _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
           ),
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
         FilledButton(
           key: const Key('printer-save'),
           onPressed: _busy ? null : _save,
@@ -365,9 +350,8 @@ class _PrinterFormDialogState extends State<_PrinterFormDialog> {
               key: Key('printer-category-${c.name}'),
               label: Text(c.name),
               selected: _categoryIds.contains(c.id),
-              onSelected: (on) => setState(
-                () => on ? _categoryIds.add(c.id) : _categoryIds.remove(c.id),
-              ),
+              onSelected: (on) =>
+                  setState(() => on ? _categoryIds.add(c.id) : _categoryIds.remove(c.id)),
             ),
         ],
       ),

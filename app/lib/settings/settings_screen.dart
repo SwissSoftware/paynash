@@ -5,8 +5,9 @@ import 'settings_api.dart';
 import 'settings_controller.dart';
 import 'settings_models.dart';
 
-/// Admin: installation mode, business details, VAT, and bank details
-/// (spec venue-mode). Invoices use the details valid when they are issued.
+/// Admin: business template, features, and terms (spec business-features), and
+/// business details, VAT, and bank details (spec venue-mode). Invoices use the
+/// details valid when they are issued.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, required this.api, required this.controller});
 
@@ -34,10 +35,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final Map<String, TextEditingController> _text = {
     for (final (name, _) in _fields) name: TextEditingController(),
   };
+  late final _waiterTerm = TextEditingController(text: _settings.terms.waiter);
+  late final _itemsTerm = TextEditingController(text: _settings.terms.items);
+  late final _sendTerm = TextEditingController(text: _settings.terms.send);
   bool _vat = false;
   Map<String, String> _errors = const {};
-  String? _modeError;
+  Map<String, String> _termErrors = const {};
+  String? _featureError;
   bool _saving = false;
+  bool _busy = false;
 
   AppSettings get _settings => widget.controller.settings!;
 
@@ -49,7 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    for (final c in _text.values) {
+    for (final c in [..._text.values, _waiterTerm, _itemsTerm, _sendTerm]) {
       c.dispose();
     }
     super.dispose();
@@ -96,69 +102,196 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _changeMode(VenueMode mode) async {
-    final label = mode == VenueMode.salon ? 'salon' : 'event / restaurant';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Switch to $label mode?'),
-        content: const Text(
-          'This is only possible while the installation has no orders. All devices show the new '
-          'functions after their next refresh.',
+  Future<bool> _confirm(String title, String message, String action) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(
+              key: const Key('settings-confirm'),
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(action),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(
-            key: const Key('mode-confirm'),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Switch'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
+      ) ==
+      true;
+
+  /// Runs a settings change and shows the new state on every screen.
+  Future<void> _apply(Future<AppSettings> Function() change) async {
+    setState(() {
+      _busy = true;
+      _featureError = null;
+    });
     try {
-      widget.controller.update(await widget.api.changeMode(mode));
-      if (mounted) setState(() => _modeError = null);
+      final saved = await change();
+      widget.controller.update(saved);
+      if (!mounted) return;
+      setState(() {
+        _waiterTerm.text = saved.terms.waiter;
+        _itemsTerm.text = saved.terms.items;
+        _sendTerm.text = saved.terms.send;
+      });
     } on ApiError catch (e) {
-      if (mounted) setState(() => _modeError = e.message);
+      if (mounted) setState(() => _featureError = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
+
+  Future<void> _applyTemplate(BusinessTemplate template) async {
+    final ok = await _confirm(
+      'Apply the template ${template.label}?',
+      'Sets the features and terms of this template. Data such as orders, invoices, and customers '
+          'stays unchanged. All devices show the new functions after their next refresh.',
+      'Apply',
+    );
+    if (ok) await _apply(() => widget.api.applyTemplate(template));
+  }
+
+  /// Switching off asks first and explains that the data is kept (spec
+  /// business-features, "Switching features with existing data").
+  Future<void> _toggle(Feature feature, bool on) async {
+    if (!on) {
+      final ok = await _confirm(
+        'Switch off ${feature.label.toLowerCase()}?',
+        'Its functions are hidden on all devices, but all data is kept. You can switch it on '
+            'again at any time.',
+        'Switch off',
+      );
+      if (!ok) return;
+    }
+    final features = {..._settings.features};
+    on ? features.add(feature) : features.remove(feature);
+    await _apply(() => widget.api.saveFeatures(features));
+  }
+
+  Future<void> _saveTerms() async {
+    setState(() => _termErrors = const {});
+    try {
+      final saved = await widget.api.saveTerms(
+        Terms(
+          waiter: _waiterTerm.text.trim(),
+          items: _itemsTerm.text.trim(),
+          send: _sendTerm.text.trim(),
+        ),
+      );
+      widget.controller.update(saved);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Terms saved')));
+    } on ApiError catch (e) {
+      if (mounted) setState(() => _termErrors = e.fieldErrors);
+    }
+  }
+
+  /// Why a switch cannot be used right now, or null.
+  String? _blocked(Feature feature) {
+    final needed = feature.requires;
+    if (!_settings.has(feature) && needed != null && !_settings.has(needed)) {
+      return 'Needs ${needed.label.toLowerCase()}';
+    }
+    final dependent = Feature.values.where((f) => f.requires == feature && _settings.has(f));
+    if (_settings.has(feature) && dependent.isNotEmpty) {
+      return 'Switch off ${dependent.first.label.toLowerCase()} first';
+    }
+    return null;
+  }
+
+  static const _featureHelp = {
+    Feature.tables: 'Orders belong to a table; table administration',
+    Feature.stations: 'Station accounts with their ticket view',
+    Feature.customers: 'Customer records; orders can have a customer',
+    Feature.invoices: 'Invoices, receipts, and PDFs for orders with a customer',
+    Feature.salesReport: 'Monthly sales report and Excel export',
+  };
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final mode = _settings.mode;
-    final salon = mode == VenueMode.salon;
+    final invoices = _settings.has(Feature.invoices);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Mode', style: text.titleMedium),
-        const SizedBox(height: 8),
-        SegmentedButton<VenueMode>(
-          key: const Key('mode-select'),
-          segments: const [
-            ButtonSegment(value: VenueMode.event, label: Text('Event / restaurant')),
-            ButtonSegment(value: VenueMode.salon, label: Text('Salon')),
-          ],
-          selected: {mode},
-          onSelectionChanged: (s) => _changeMode(s.single),
+        Text('Business template', style: text.titleMedium),
+        Text(
+          'Current: ${_settings.template.label}. A template sets features and terms; you can '
+          'adjust both afterwards.',
+          key: const Key('settings-template-current'),
+          style: text.bodySmall,
         ),
-        if (_modeError != null)
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final template in BusinessTemplate.values)
+              if (template != BusinessTemplate.custom)
+                OutlinedButton(
+                  key: Key('template-${template.name}'),
+                  onPressed: _busy ? null : () => _applyTemplate(template),
+                  child: Text(template.label),
+                ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Text('Features', style: text.titleMedium),
+        for (final feature in Feature.values)
+          SwitchListTile(
+            key: Key('feature-${feature.key}'),
+            contentPadding: EdgeInsets.zero,
+            title: Text(feature.label),
+            subtitle: Text(_blocked(feature) ?? _featureHelp[feature]!),
+            value: _settings.has(feature),
+            onChanged: _busy || _blocked(feature) != null ? null : (on) => _toggle(feature, on),
+          ),
+        if (_featureError != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
-              _modeError!,
-              key: const Key('mode-error'),
+              _featureError!,
+              key: const Key('feature-error'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
         const SizedBox(height: 24),
+        Text('Terms', style: text.titleMedium),
+        Text('How the apps name these things. Stored roles do not change.', style: text.bodySmall),
+        const SizedBox(height: 8),
+        for (final (key, label, controller) in [
+          ('waiter', 'Waiter role', _waiterTerm),
+          ('items', 'Menu items', _itemsTerm),
+          ('send', 'Sending an order', _sendTerm),
+        ])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: TextField(
+              key: Key('term-$key'),
+              controller: controller,
+              maxLength: 30,
+              decoration: InputDecoration(
+                labelText: label,
+                errorText: _termErrors[key],
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton(
+            key: const Key('terms-save'),
+            onPressed: _saveTerms,
+            child: const Text('Save terms'),
+          ),
+        ),
+        const SizedBox(height: 24),
         Text('Business details', style: text.titleMedium),
         Text(
-          salon
+          invoices
               ? 'Shown on every invoice. Name, street, postal code, and city are required.'
-              : 'Only needed in salon mode.',
+              : 'Only needed while invoices are on.',
           style: text.bodySmall,
         ),
         const SizedBox(height: 8),

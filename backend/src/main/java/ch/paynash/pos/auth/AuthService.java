@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import ch.paynash.pos.common.ApiException;
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Feature;
 import ch.paynash.pos.settings.SettingsService;
 import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.staff.Staff;
@@ -73,9 +73,9 @@ public class AuthService {
 	public LoginResult login(String username, String pin) {
 		Instant now = clock.instant();
 		Staff account = verify(username, pin, now, AuthService::invalidCredentials);
-		if (account.role() == Role.STATION && settings.mode() == Mode.SALON) {
-			// Salon mode has no station view (spec staff-access, "Station in a salon").
-			throw new ApiException(HttpStatus.FORBIDDEN, "Station accounts cannot log in in salon mode");
+		if (account.role() == Role.STATION && !settings.enabled(Feature.STATIONS)) {
+			// No station view while stations are off (spec staff-access, "Station in a salon").
+			throw new ApiException(HttpStatus.FORBIDDEN, "Station accounts cannot log in while stations are off");
 		}
 		sessions.deleteExpired(now);
 		String token = newToken();
@@ -117,8 +117,14 @@ public class AuthService {
 		return account;
 	}
 
+	/**
+	 * The session's staff member, or empty if the session is invalid. Station sessions count as invalid while stations
+	 * are off, so a logged-in station returns to the login screen on its next request without its session being
+	 * deleted (change configurable-business-features, design D6).
+	 */
 	public Optional<AuthenticatedStaff> authenticate(String token) {
-		return sessions.findValid(hashToken(token), clock.instant());
+		return sessions.findValid(hashToken(token), clock.instant())
+			.filter(staff -> staff.role() != Role.STATION || settings.enabled(Feature.STATIONS));
 	}
 
 	public void logout(AuthenticatedStaff current) {
