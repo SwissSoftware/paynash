@@ -42,7 +42,8 @@ class StaffApi {
 
   /// The printers a station can be assigned to, by id and name.
   Future<List<({int id, String name})>> printers() async => [
-        for (final json in await _api.get('/admin/printers') as List)
+        for (final json
+            in (await _api.get('/admin/printers') as Map<String, dynamic>)['printers'] as List)
           (id: json['id'] as int, name: json['name'] as String),
       ];
 

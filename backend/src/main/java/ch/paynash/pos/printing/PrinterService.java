@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import ch.paynash.pos.common.ApiException;
-import ch.paynash.pos.settings.Mode;
-import ch.paynash.pos.settings.SettingsService;
 
 /** Printer configuration (spec ticket-printing, "Printer configuration"). */
 @Service
@@ -20,17 +18,19 @@ public class PrinterService {
 
 	private final TicketRenderer renderer;
 
-	private final SettingsService settings;
-
-	public PrinterService(PrinterRepository printers, EposClient epos, TicketRenderer renderer,
-			SettingsService settings) {
+	public PrinterService(PrinterRepository printers, EposClient epos, TicketRenderer renderer) {
 		this.printers = printers;
 		this.epos = epos;
 		this.renderer = renderer;
-		this.settings = settings;
 	}
 
-	public record PrinterInput(String name, String address, String deviceId, PrintPurpose type, boolean active) {
+	public record PrinterInput(String name, String address, String deviceId, boolean printsTickets,
+			boolean printsReceipts, List<Long> categoryIds, boolean active) {
+
+		public PrinterInput {
+			categoryIds = categoryIds == null ? List.of() : List.copyOf(categoryIds);
+		}
+
 	}
 
 	public List<Printer> list() {
@@ -41,7 +41,10 @@ public class PrinterService {
 	public Printer create(PrinterInput in) {
 		check(in, -1);
 		try {
-			return get(printers.insert(in.name().trim(), in.address().trim(), deviceId(in), in.type(), in.active()));
+			long id = printers.insert(in.name().trim(), in.address().trim(), deviceId(in), in.printsTickets(),
+					in.printsReceipts(), in.active());
+			printers.setCategories(id, in.categoryIds());
+			return get(id);
 		}
 		catch (DuplicateKeyException ex) {
 			throw conflictOnSave(in, -1);
@@ -53,7 +56,9 @@ public class PrinterService {
 		get(id);
 		check(in, id);
 		try {
-			printers.update(id, in.name().trim(), in.address().trim(), deviceId(in), in.type(), in.active());
+			printers.update(id, in.name().trim(), in.address().trim(), deviceId(in), in.printsTickets(),
+					in.printsReceipts(), in.active());
+			printers.setCategories(id, in.categoryIds());
 		}
 		catch (DuplicateKeyException ex) {
 			throw conflictOnSave(in, id);
@@ -66,7 +71,15 @@ public class PrinterService {
 	 */
 	public EposClient.Result testPrint(long id) {
 		Printer printer = get(id);
-		return epos.print(printer, renderer.testTicket(printer));
+		return epos.print(printer, renderer.testTicket(printer, printers.categories(id)));
+	}
+
+	public List<PrinterRepository.CategoryRef> categories(long printerId) {
+		return printers.categories(printerId);
+	}
+
+	public List<PrinterRepository.CategoryRef> unprintedCategories() {
+		return printers.unprintedCategories();
 	}
 
 	public List<PrinterRepository.StationSeen> stationsShowing(long printerId) {
@@ -78,26 +91,16 @@ public class PrinterService {
 	}
 
 	/**
-	 * At most one active printer per type, so every line has exactly one destination. A salon prints only receipts,
-	 * an event only food and drink tickets (add-salon-mode, spec ticket-printing "Printer configuration").
+	 * Names are unique and assigned categories must exist. Any number of printers may print a category or receipts,
+	 * in every venue mode (change printer-category-routing, spec ticket-printing "Printer configuration").
 	 */
 	private void check(PrinterInput in, long id) {
-		boolean salon = settings.mode() == Mode.SALON;
-		if (salon && in.type() != PrintPurpose.RECEIPT) {
-			throw ApiException.validation("type", "In salon mode a printer prints receipts");
-		}
-		if (!salon && in.type() == PrintPurpose.RECEIPT) {
-			throw ApiException.validation("type", "Receipt printers are only available in salon mode");
-		}
 		if (printers.existsByName(in.name().trim(), id)) {
 			throw ApiException.validation("name", "A printer with this name already exists");
 		}
-		if (in.active()) {
-			printers.findOtherActiveFor(in.type(), id).ifPresent(other -> {
-				throw ApiException.validation("type",
-						"\"" + other.name() + "\" already prints " + in.type().dbValue()
-								+ (in.type() == PrintPurpose.RECEIPT ? "s" : "") + ". Deactivate it first.");
-			});
+		List<Long> missing = printers.missingCategories(in.categoryIds());
+		if (!missing.isEmpty()) {
+			throw ApiException.validation("categoryIds", "Unknown category: " + missing.get(0));
 		}
 	}
 

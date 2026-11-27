@@ -15,8 +15,6 @@ import org.springframework.web.filter.ShallowEtagHeaderFilter;
 
 import ch.paynash.pos.common.Money;
 import ch.paynash.pos.common.VatRates;
-import ch.paynash.pos.settings.Mode;
-import ch.paynash.pos.settings.SettingsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -27,11 +25,8 @@ public class WaiterMenuController {
 
 	private final MenuRepository menu;
 
-	private final SettingsService settings;
-
-	public WaiterMenuController(MenuRepository menu, SettingsService settings) {
+	public WaiterMenuController(MenuRepository menu) {
 		this.menu = menu;
-		this.settings = settings;
 	}
 
 	/** {@code durationMin} is only set for services; {@code vatRate} is a percentage such as "8.1". */
@@ -49,12 +44,10 @@ public class WaiterMenuController {
 	@Operation(summary = "Active menu for order taking",
 			description = "Supports ETag / If-None-Match: answers 304 when the menu has not changed.")
 	public ResponseEntity<MenuView> menu() {
-		// Salon mode offers only services, event mode never does (spec menu-catalog, "Item types per mode").
-		boolean salon = settings.mode() == Mode.SALON;
+		// Items of all types are offered side by side (spec menu-catalog, "Admin manages menu items").
 		Map<Long, List<MenuItem>> byCategory = menu.findAllItems()
 			.stream()
 			.filter(MenuItem::active)
-			.filter(i -> (i.type() == ItemType.SERVICE) == salon)
 			.collect(Collectors.groupingBy(MenuItem::categoryId));
 		List<MenuCategoryView> categories = new ArrayList<>();
 		for (Category c : menu.findAllCategories()) {

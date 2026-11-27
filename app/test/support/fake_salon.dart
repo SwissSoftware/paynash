@@ -9,8 +9,27 @@ class FakeSalon {
 
   // --- settings
 
+  static const _templates = {
+    'event': (['tables', 'stations'], {'waiter': 'Waiter', 'items': 'Menu', 'send': 'Send'}),
+    'restaurant': (
+      ['tables', 'stations', 'customers', 'invoices', 'sales-report'],
+      {'waiter': 'Waiter', 'items': 'Menu', 'send': 'Send'},
+    ),
+    'salon': (
+      ['customers', 'invoices', 'sales-report'],
+      {'waiter': 'Staff', 'items': 'Services', 'send': 'Confirm'},
+    ),
+    'counter': (<String>[], {'waiter': 'Staff', 'items': 'Menu', 'send': 'Sell'}),
+  };
+
+  static const featureKeys = ['tables', 'stations', 'customers', 'invoices', 'sales-report'];
+
+  static const _requires = {'sales-report': 'invoices'};
+
   Map<String, dynamic> settings = {
-    'mode': 'event',
+    'features': {for (final f in featureKeys) f: f == 'tables' || f == 'stations'},
+    'template': 'event',
+    'terms': {'waiter': 'Waiter', 'items': 'Menu', 'send': 'Send'},
     'businessName': null,
     'street': null,
     'postalCode': null,
@@ -26,13 +45,24 @@ class FakeSalon {
 
   int settingsRequests = 0;
 
-  bool get isSalon => settings['mode'] == 'salon';
+  bool has(String feature) => (settings['features'] as Map)[feature] == true;
 
-  /// Switches to salon mode with complete business details.
-  void useSalon({bool vat = false}) {
+  /// Applies a template's features and terms, as POST /admin/settings/template.
+  void useTemplate(String template) {
+    final (features, terms) = _templates[template]!;
     settings = {
       ...settings,
-      'mode': 'salon',
+      'features': {for (final f in featureKeys) f: features.contains(f)},
+      'template': template,
+      'terms': terms,
+    };
+  }
+
+  /// Switches to the salon template with complete business details.
+  void useSalon({bool vat = false}) {
+    useTemplate('salon');
+    settings = {
+      ...settings,
       'businessName': 'Kosmetik Aurora',
       'street': 'Bahnhofstrasse 1',
       'postalCode': '3000',
@@ -49,14 +79,36 @@ class FakeSalon {
       return FakeBackend._json(200, settings);
     }
     if (path == '/admin/settings' && r.method == 'PUT') return _saveSettings(body!);
-    if (path == '/admin/settings/mode' && r.method == 'PUT') {
-      if (body!['mode'] != settings['mode'] && backend.orders.isNotEmpty) {
-        return FakeBackend._problem(
-          409,
-          'The installation already has orders, so its mode can no longer change',
-        );
+    if (path == '/admin/settings/template' && r.method == 'POST') {
+      useTemplate(body!['template'] as String);
+      return FakeBackend._json(200, settings);
+    }
+    if (path == '/admin/settings/features' && r.method == 'PUT') {
+      final requested = body!.cast<String, bool>();
+      for (final MapEntry(key: f, value: needed) in _requires.entries) {
+        if (requested[f] == true && requested[needed] != true) {
+          return FakeBackend._problem(
+            400,
+            has(needed)
+                ? 'Switch off $f first, because it needs $needed'
+                : 'The feature $f needs $needed; switch on $needed as well',
+          );
+        }
       }
-      settings = {...settings, 'mode': body['mode']};
+      settings = {...settings, 'features': requested, 'template': 'custom'};
+      return FakeBackend._json(200, settings);
+    }
+    if (path == '/admin/settings/terms' && r.method == 'PUT') {
+      final errors = {
+        for (final key in ['waiter', 'items', 'send'])
+          if (((body![key] as String?) ?? '').trim().isEmpty) key: 'Required',
+      };
+      if (errors.isNotEmpty) return FakeBackend._problem(400, 'Validation failed', errors);
+      settings = {
+        ...settings,
+        'terms': {for (final key in ['waiter', 'items', 'send']) key: (body![key] as String).trim()},
+        'template': 'custom',
+      };
       return FakeBackend._json(200, settings);
     }
     return _customerRoutes(r, body, me) ?? _invoiceRoutes(r, body, me) ?? _reportRoutes(r);
@@ -243,12 +295,29 @@ class FakeSalon {
   /// Copies printed, by invoice number.
   final copies = <String>[];
 
-  bool get _hasReceiptPrinter =>
-      backend.printers.any((p) => p['type'] == 'receipt' && p['active'] == true);
+  /// One receipt job per printer with receipts on: printing on the active
+  /// ones, failed on each if all are inactive, none without such a printer.
+  List<Map<String, dynamic>> _receipts(String kind) {
+    final receiptPrinters = backend.printers.where((p) => p['printsReceipts'] == true).toList();
+    final active = receiptPrinters.where((p) => p['active'] == true).toList();
+    return [
+      for (final p in active.isEmpty ? receiptPrinters : active)
+        active.isEmpty
+            ? {'kind': kind, 'printer': p['name'], 'status': 'failed', 'error': 'no active printer'}
+            : {
+                'kind': kind,
+                'printer': p['name'],
+                'status': receiptStatus,
+                'label': '${(p['name'] as String).toUpperCase()} 0001',
+              },
+    ];
+  }
 
-  Map<String, dynamic> _receipt(String kind) => _hasReceiptPrinter
-      ? {'kind': kind, 'type': 'receipt', 'status': receiptStatus, 'label': 'COUNTER 0001'}
-      : {'kind': kind, 'type': 'receipt', 'status': 'failed', 'error': 'no printer configured'};
+  void _setReceipts(Map<String, dynamic> i, String kind) {
+    final receipts = _receipts(kind);
+    i['receipts'] = receipts;
+    i['receipt'] = receipts.lastOrNull;
+  }
 
   Map<String, dynamic> invoice(int id) => invoices.firstWhere((i) => i['id'] == id);
 
@@ -263,14 +332,18 @@ class FakeSalon {
     final c = customers.where((c) => c['id'] == i['customerId']).firstOrNull;
     return {
       ...i,
+      'receipts': i['receipts'] ?? [if (i['receipt'] != null) i['receipt']],
       'business': {'name': settings['businessName']},
-      'customer': {
-        'number': c?['number'] ?? 0,
-        'name': i['customerName'],
-        'street': c?['street'],
-        'postalCode': c?['postalCode'],
-        'city': c?['city'],
-      },
+      // Null for an invoice without customer (change invoices-without-customer).
+      'customer': i['customerId'] == null
+          ? null
+          : {
+              'number': c?['number'] ?? 0,
+              'name': i['customerName'],
+              'street': c?['street'],
+              'postalCode': c?['postalCode'],
+              'city': c?['city'],
+            },
       'payment': (i['paymentHistory'] as List).cast<Map<String, dynamic>>().where(
         (p) => p['removedBy'] == null,
       ).firstOrNull,
@@ -297,12 +370,12 @@ class FakeSalon {
               (q['status'] == null || i['status'] == q['status']) &&
               (query.isEmpty ||
                   (i['number'] as String).toLowerCase().contains(query) ||
-                  (i['customerName'] as String).toLowerCase().contains(query)))
+                  ((i['customerName'] as String?) ?? '').toLowerCase().contains(query)))
             {
               'id': i['id'],
               'number': i['number'],
               'date': i['date'],
-              'customerNumber': _invoiceJson(i)['customer']['number'],
+              'customerNumber': _invoiceJson(i)['customer']?['number'],
               'customerName': i['customerName'],
               'total': i['total'],
               'status': i['status'],
@@ -324,13 +397,13 @@ class FakeSalon {
           headers: {'content-disposition': 'attachment; filename="Rechnung-${i['number']}.pdf"'},
         );
       case ('POST', 'receipt'):
-        final receipt = i['receipt'] as Map<String, dynamic>?;
-        if (receipt != null && (receipt['status'] == 'pending' || receipt['status'] == 'printing')) {
+        final receipts = _invoiceJson(i)['receipts'] as List;
+        if (receipts.any((r) => r['status'] == 'pending' || r['status'] == 'printing')) {
           return FakeBackend._problem(409, 'The receipt is still being printed');
         }
         copies.add(i['number'] as String);
-        i['receipt'] = _receipt('copy');
-        return FakeBackend._json(201, i['receipt'] as Object);
+        _setReceipts(i, 'copy');
+        return FakeBackend._json(201, i['receipts'] as Object);
       case ('POST', 'payment'):
         if (i['status'] == 'cancelled') {
           return FakeBackend._problem(409, 'A cancelled invoice cannot be paid');
@@ -387,6 +460,14 @@ class FakeSalon {
       (l) => l['status'] != 'cancelled',
     );
     final total = lines.fold(0, (sum, l) => sum + FakeBackend._lineTotal(l));
+    // Small-amount limit without customer, as the backend (spec invoicing).
+    if (o['customerId'] == null && total > 40000) {
+      return FakeBackend._json(409, {
+        'status': 409,
+        'detail': 'Invoices above CHF 400.00 need a customer',
+        'code': 'customer_required',
+      });
+    }
     final number = '2026-${(invoices.length + 1).toString().padLeft(4, '0')}';
     final i = {
       'id': _nextInvoiceId++,
@@ -414,8 +495,8 @@ class FakeSalon {
       'cancelReason': null,
       'cancelledBy': null,
       'paymentHistory': <Map<String, dynamic>>[],
-      'receipt': _receipt('normal'),
     };
+    _setReceipts(i, 'normal');
     invoices.add(i);
     return FakeBackend._json(201, _invoiceJson(i));
   }
@@ -465,9 +546,9 @@ class FakeSalon {
 
     final errors = <String, String>{};
     if (text('businessName') == null) errors['businessName'] = 'Business name is required';
-    if (isSalon) {
+    if (has('invoices')) {
       for (final f in ['street', 'postalCode', 'city']) {
-        if (text(f) == null) errors[f] = 'Required in salon mode';
+        if (text(f) == null) errors[f] = 'Required while invoices are on';
       }
     }
     final uid = text('vatUid');
@@ -478,7 +559,9 @@ class FakeSalon {
     }
     if (errors.isNotEmpty) return FakeBackend._problem(400, 'Validation failed', errors);
     settings = {
-      'mode': settings['mode'],
+      'features': settings['features'],
+      'template': settings['template'],
+      'terms': settings['terms'],
       for (final f in [
         'businessName',
         'street',

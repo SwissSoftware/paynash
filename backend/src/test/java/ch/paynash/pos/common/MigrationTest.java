@@ -26,9 +26,10 @@ class MigrationTest {
 	}
 
 	@Test
-	void freshDatabaseHasOneSettingsRowInEventMode() {
-		assertThat(jdbc.sql("SELECT mode FROM installation_settings").query(String.class).list())
-			.containsExactly("event");
+	void freshDatabaseHasOneSettingsRowWithTheEventTemplate() {
+		assertThat(jdbc.sql("""
+				SELECT template || ':' || feature_tables || ':' || feature_stations || ':' || feature_customers
+				FROM installation_settings""").query(String.class).list()).containsExactly("event:true:true:false");
 	}
 
 }

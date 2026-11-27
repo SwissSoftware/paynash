@@ -80,6 +80,16 @@ class CategoryAdminTest extends MenuTestSupport {
 	}
 
 	@Test
+	void categoryIsDeletableOnceItsOnlyUnorderedItemIsDeleted() throws Exception {
+		long id = createCategory("Test");
+		long item = createItem(id, "Test item", "food", "1.00");
+		mvc.perform(delete("/admin/items/" + item).header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(status().isNoContent());
+		mvc.perform(delete("/admin/categories/" + id).header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(status().isNoContent());
+	}
+
+	@Test
 	void deleteNonEmptyCategoryIsRejectedWithItemNames() throws Exception {
 		long id = createCategory("Pizzas");
 		createItem(id, "Margherita", "food", "18.00");

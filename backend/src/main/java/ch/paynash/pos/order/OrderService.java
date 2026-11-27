@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -19,12 +20,11 @@ import ch.paynash.pos.common.TableLabels;
 import ch.paynash.pos.customer.Customer;
 import ch.paynash.pos.customer.CustomerRepository;
 import ch.paynash.pos.menu.Category;
-import ch.paynash.pos.menu.ItemType;
 import ch.paynash.pos.menu.MenuItem;
 import ch.paynash.pos.menu.MenuRepository;
 import ch.paynash.pos.printing.PrintJob;
 import ch.paynash.pos.printing.PrintJobRepository;
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Feature;
 import ch.paynash.pos.settings.SettingsService;
 
 /**
@@ -65,7 +65,7 @@ public class OrderService {
 	}
 
 	/** An order with everything the order history shows, including its tickets. */
-	/** {@code invoice} is the invoice a salon order shows, or null (spec order-taking, salon mode). */
+	/** {@code invoice} is the invoice the order shows, or null (spec order-taking). */
 	public record OrderDetail(Order order, List<OrderLine> lines, List<PrintJob> tickets,
 			OrderRepository.InvoiceRef invoice) {
 
@@ -89,7 +89,7 @@ public class OrderService {
 	public OrderDetail detail(long orderId) {
 		Order order = orders.find(orderId).orElseThrow(() -> ApiException.notFound("Order"));
 		return new OrderDetail(order, orders.findLines(orderId), printJobs.findByOrder(orderId),
-				order.customerId() == null ? null : orders.shownInvoice(orderId).orElse(null));
+				orders.shownInvoice(orderId).orElse(null));
 	}
 
 	// --- sending
@@ -101,18 +101,33 @@ public class OrderService {
 	 */
 	@Transactional
 	public OrderDetail send(String tableLabel, Long customerId, List<NewLine> lines, AuthenticatedStaff staff) {
-		// Shared lock: a mode change waits for this send, and this send waits for a running mode change (venue-mode).
-		boolean salon = settings.lockModeForOrder() == Mode.SALON;
+		// Shared lock: a feature change waits for this send, and this send waits for a running feature change
+		// (change configurable-business-features, design D3).
+		Set<Feature> features = settings.lockFeaturesForOrder();
+		boolean tables = features.contains(Feature.TABLES);
+		boolean withCustomers = features.contains(Feature.CUSTOMERS);
+		boolean hasLabel = tableLabel != null && !tableLabel.isBlank();
+		// Order target (spec order-taking, "Create and send an order" and "Confirm an order for a customer"): a table
+		// label exactly while tables are on; a customer required while customers are on and tables off, optional while
+		// both are on, and not allowed while customers are off.
 		String label = null;
+		if (tables) {
+			if (!hasLabel) {
+				throw ApiException.validation("tableLabel", "Table is required");
+			}
+			label = TableLabels.normalize(tableLabel, "tableLabel", "Table");
+		}
+		else if (hasLabel) {
+			throw ApiException.validation("tableLabel", "Tables are switched off, so orders have no table");
+		}
 		Customer customer = null;
-		if (salon) {
-			// Salon orders belong to a customer, not a table (spec order-taking, "Confirm an order for a customer").
-			if (tableLabel != null && !tableLabel.isBlank()) {
-				throw ApiException.validation("tableLabel", "Salon orders have no table");
-			}
-			if (customerId == null) {
-				throw ApiException.validation("customerId", "Customer is required");
-			}
+		if (!withCustomers && customerId != null) {
+			throw ApiException.validation("customerId", "Customers are switched off, so orders have no customer");
+		}
+		if (withCustomers && !tables && customerId == null) {
+			throw ApiException.validation("customerId", "Customer is required");
+		}
+		if (customerId != null) {
 			customer = customers.lockForOrder(customerId)
 				.orElseThrow(() -> ApiException.validation("customerId", "Customer does not exist"));
 			if (!customer.active()) {
@@ -120,35 +135,36 @@ public class OrderService {
 					.with("inactiveCustomerId", customer.id());
 			}
 		}
-		else {
-			if (customerId != null) {
-				throw ApiException.validation("customerId", "Orders in event mode have no customer");
-			}
-			if (tableLabel == null || tableLabel.isBlank()) {
-				throw ApiException.validation("tableLabel", "Table is required");
-			}
-			label = TableLabels.normalize(tableLabel, "tableLabel", "Table");
-		}
 		if (lines == null || lines.isEmpty()) {
 			throw ApiException.validation("lines", "The order has no lines");
 		}
 		Map<Long, MenuItem> items = new HashMap<>();
 		List<MenuItem> inactive = new ArrayList<>();
+		List<Long> deleted = new ArrayList<>();
 		for (NewLine line : lines) {
-			MenuItem item = items.computeIfAbsent(line.menuItemId(), id -> menu.findItem(id)
-				.orElseThrow(() -> ApiException.validation("lines", "Menu item " + id + " does not exist")));
-			if ((item.type() == ItemType.SERVICE) != salon) {
-				throw ApiException.validation("lines", salon ? item.name() + " is not a service"
-						: item.name() + " is a service and can only be sold in salon mode");
+			// Items of all types may be mixed in one order (spec order-taking, "Service lines").
+			long id = line.menuItemId();
+			if (deleted.contains(id)) {
+				continue;
 			}
-			if (!item.active() && !inactive.contains(item)) {
+			MenuItem item = items.computeIfAbsent(id, key -> menu.findItem(key).orElse(null));
+			if (item == null) {
+				// Deleted in the meantime: rejected like an inactive item (change delete-unsold-menu-items, design D3).
+				deleted.add(id);
+			}
+			else if (!item.active() && !inactive.contains(item)) {
 				inactive.add(item);
 			}
 		}
-		if (!inactive.isEmpty()) {
-			throw ApiException
-				.conflict(String.join(", ", inactive.stream().map(MenuItem::name).toList()) + " no longer available")
-				.with("inactiveMenuItemIds", inactive.stream().map(MenuItem::id).toList());
+		if (!inactive.isEmpty() || !deleted.isEmpty()) {
+			List<String> parts = new ArrayList<>(inactive.stream().map(MenuItem::name).toList());
+			if (!deleted.isEmpty()) {
+				parts.add(inactive.isEmpty() ? "Deleted items" : "deleted items");
+			}
+			List<Long> ids = new ArrayList<>(inactive.stream().map(MenuItem::id).toList());
+			ids.addAll(deleted);
+			throw ApiException.conflict(String.join(", ", parts) + " no longer available")
+				.with("inactiveMenuItemIds", ids);
 		}
 		long orderId = orders.insertSent(label, customer == null ? null : customer.id(), staff.id(), clock.instant());
 		for (NewLine line : lines) {
@@ -214,13 +230,12 @@ public class OrderService {
 				.with("orderStatus", order.status().dbValue());
 		}
 		// An invoice is final, so its order stays as invoiced (spec invoicing, "Invoices are final"). Issuing takes
-		// the same order lock, so the two cannot overlap.
-		if (order.customerId() != null) {
-			orders.shownInvoice(orderId).filter(i -> !"cancelled".equals(i.status())).ifPresent(i -> {
-				throw ApiException.conflict("The order has invoice " + i.number() + ", cancel the invoice first")
-					.with("invoiceId", i.id());
-			});
-		}
+		// the same order lock, so the two cannot overlap. Applies with or without customer (change
+		// invoices-without-customer, design D5).
+		orders.shownInvoice(orderId).filter(i -> !"cancelled".equals(i.status())).ifPresent(i -> {
+			throw ApiException.conflict("The order has invoice " + i.number() + ", cancel the invoice first")
+				.with("invoiceId", i.id());
+		});
 		return order;
 	}
 

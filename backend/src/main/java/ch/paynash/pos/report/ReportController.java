@@ -14,14 +14,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import ch.paynash.pos.common.Money;
 import ch.paynash.pos.common.VatRates;
-import ch.paynash.pos.settings.Mode;
-import ch.paynash.pos.settings.RequiresMode;
+import ch.paynash.pos.settings.Feature;
+import ch.paynash.pos.settings.RequiresFeature;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-/** The sales report for admins in salon mode (spec sales-reporting). */
+/** The sales report for admins while the sales report is on (spec sales-reporting). */
 @RestController
-@RequiresMode(Mode.SALON)
+@RequiresFeature(Feature.SALES_REPORT)
 @Tag(name = "Admin: sales report")
 public class ReportController {
 
@@ -52,7 +52,8 @@ public class ReportController {
 	public record ServiceView(String name, int quantity, String revenue) {
 	}
 
-	public record CustomerView(int number, String name, int invoiceCount, String revenue) {
+	/** {@code number} is null for the entry "Ohne Kunde". */
+	public record CustomerView(Integer number, String name, int invoiceCount, String revenue) {
 	}
 
 	public record ReportView(LocalDate from, LocalDate to, SummaryView summary, List<DayView> days,

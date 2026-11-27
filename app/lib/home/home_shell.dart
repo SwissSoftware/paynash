@@ -53,6 +53,10 @@ class _Section {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
+
+  /// The label of the open section. Sections come and go with the features, so
+  /// the open section is found again by its label rather than its position.
+  String? _selectedLabel;
   late final _menuApi = MenuApi(widget.session.api);
   late final _orderApi = OrderApi(widget.session.api);
   late final _tablesApi = TablesApi(widget.session.api);
@@ -64,17 +68,19 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.session.api.onFeatureDisabled = _settings.load;
     _settings.load();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.session.api.onFeatureDisabled = null;
     _settings.dispose();
     super.dispose();
   }
 
-  /// A mode change by an admin reaches this device on its next resume.
+  /// A feature change by an admin reaches this device on its next resume.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) _settings.load();
@@ -82,65 +88,106 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   List<_Section> _sections(Me me, AppSettings settings) {
     if (me.isStation) return _stationSections();
+    // Sections follow the features (spec business-features, "Functions follow
+    // the features"); menu, orders, printers, staff, and settings always exist.
     final terms = settings.terms;
-    final salon = settings.isSalon;
+    final customers = settings.has(Feature.customers);
+    final invoices = settings.has(Feature.invoices);
+    final services = terms.items.toLowerCase().startsWith('service');
     return [
-      _Section('New order', Icons.add_shopping_cart,
-          () => OrderScreen(
-                orderApi: _orderApi,
-                menuApi: _menuApi,
-                tablesApi: _tablesApi,
-                customerApi: salon ? _customerApi : null,
-                invoiceApi: salon ? _invoiceApi : null,
-              )),
-      _Section('History', Icons.receipt_long,
-          () => OrderHistoryScreen(
-                orderApi: _orderApi,
-                isAdmin: me.isAdmin,
-                exportApi: me.isAdmin && !salon ? ExportApi(widget.session.api) : null,
-                invoiceApi: salon ? _invoiceApi : null,
-              )),
-      if (salon)
-        _Section('Customers', Icons.people,
-            () => CustomersScreen(
-                  api: _customerApi,
-                  isAdmin: me.isAdmin,
-                  openInvoice: (context, id) =>
-                      openInvoice(context, _invoiceApi, id, isAdmin: me.isAdmin),
-                )),
-      if (salon)
-        _Section('Invoices', Icons.request_quote,
-            () => InvoicesScreen(api: _invoiceApi, isAdmin: me.isAdmin)),
-      _Section(terms.items, salon ? Icons.spa : Icons.restaurant_menu,
-          () => MenuScreen(menuApi: _menuApi)),
-      if (me.isAdmin && salon)
+      _Section(
+        'New order',
+        Icons.add_shopping_cart,
+        () => OrderScreen(
+          orderApi: _orderApi,
+          menuApi: _menuApi,
+          tablesApi: _tablesApi,
+          tables: settings.has(Feature.tables),
+          customerApi: customers ? _customerApi : null,
+          invoiceApi: invoices ? _invoiceApi : null,
+          sendTerm: terms.send,
+        ),
+      ),
+      _Section(
+        'History',
+        Icons.receipt_long,
+        () => OrderHistoryScreen(
+          orderApi: _orderApi,
+          isAdmin: me.isAdmin,
+          exportApi: me.isAdmin ? ExportApi(widget.session.api) : null,
+          invoiceApi: invoices ? _invoiceApi : null,
+        ),
+      ),
+      if (customers)
+        _Section(
+          'Customers',
+          Icons.people,
+          () => CustomersScreen(
+            api: _customerApi,
+            isAdmin: me.isAdmin,
+            openInvoice: (context, id) =>
+                openInvoice(context, _invoiceApi, id, isAdmin: me.isAdmin),
+          ),
+        ),
+      if (invoices)
+        _Section(
+          'Invoices',
+          Icons.request_quote,
+          () => InvoicesScreen(api: _invoiceApi, isAdmin: me.isAdmin),
+        ),
+      _Section(
+        terms.items,
+        services ? Icons.spa : Icons.restaurant_menu,
+        () => MenuScreen(menuApi: _menuApi),
+      ),
+      if (me.isAdmin && settings.has(Feature.salesReport))
         _Section('Report', Icons.insights, () => ReportScreen(api: ReportApi(widget.session.api))),
       if (me.isAdmin)
-        _Section('${terms.items} setup', Icons.edit_note,
-            () => MenuAdminScreen(
-                  api: MenuAdminApi(widget.session.api),
-                  mode: settings.mode,
-                  vatEnabled: settings.vatEnabled,
-                )),
-      if (me.isAdmin && !salon)
+        _Section(
+          '${terms.items} setup',
+          Icons.edit_note,
+          () => MenuAdminScreen(
+            api: MenuAdminApi(widget.session.api),
+            terms: terms,
+            vatEnabled: settings.vatEnabled,
+          ),
+        ),
+      if (me.isAdmin && settings.has(Feature.tables))
         _Section('Tables', Icons.table_restaurant, () => TablesScreen(api: _tablesApi)),
       if (me.isAdmin)
-        _Section('Printers', Icons.print,
-            () => PrintersScreen(api: PrintersApi(widget.session.api))),
+        _Section(
+          'Printers',
+          Icons.print,
+          () => PrintersScreen(api: PrintersApi(widget.session.api), receipts: invoices),
+        ),
       if (me.isAdmin)
-        _Section('Staff', Icons.badge,
-            () => StaffScreen(api: StaffApi(widget.session.api), me: me, terms: terms)),
+        _Section(
+          'Staff',
+          Icons.badge,
+          () => StaffScreen(
+            api: StaffApi(widget.session.api),
+            me: me,
+            terms: terms,
+            stations: settings.has(Feature.stations),
+          ),
+        ),
       if (me.isAdmin)
-        _Section('Settings', Icons.settings,
-            () => SettingsScreen(api: _settings.api, controller: _settings)),
+        _Section(
+          'Settings',
+          Icons.settings,
+          () => SettingsScreen(api: _settings.api, controller: _settings),
+        ),
     ];
   }
 
   /// A station sees only the station view (spec staff-access, station permissions).
   List<_Section> _stationSections() => [
-        _Section('Station', Icons.print,
-            () => StationScreen(api: StationApi(widget.session.api), devices: widget.stationDevices)),
-      ];
+    _Section(
+      'Station',
+      Icons.print,
+      () => StationScreen(api: StationApi(widget.session.api), devices: widget.stationDevices),
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) =>
@@ -151,7 +198,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final settings = _settings.settings;
     if (settings == null) return _loading(me);
     final sections = _sections(me, settings);
-    final index = _index.clamp(0, sections.length - 1);
+    final byLabel = _selectedLabel == null
+        ? -1
+        : sections.indexWhere((s) => s.label == _selectedLabel);
+    final index = byLabel >= 0 ? byLabel : _index.clamp(0, sections.length - 1);
+    _index = index;
+    _selectedLabel = sections[index].label;
     final wide = MediaQuery.sizeOf(context).width >= 720;
 
     return Scaffold(
@@ -173,7 +225,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             NavigationRail(
               selectedIndex: index,
               labelType: NavigationRailLabelType.all,
-              onDestinationSelected: (i) => setState(() => _index = i),
+              onDestinationSelected: (i) => setState(() {
+              _index = i;
+              _selectedLabel = null;
+            }),
               destinations: [
                 for (final s in sections)
                   NavigationRailDestination(icon: Icon(s.icon), label: Text(s.label)),
@@ -188,28 +243,28 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   /// Before the settings are known the sections cannot be built.
   Widget _loading(Me me) => Scaffold(
-        appBar: AppBar(
-          actions: [
-            IconButton(
-              key: const Key('logout'),
-              tooltip: 'Log out',
-              icon: const Icon(Icons.logout),
-              onPressed: widget.session.logout,
+    appBar: AppBar(
+      actions: [
+        IconButton(
+          key: const Key('logout'),
+          tooltip: 'Log out',
+          icon: const Icon(Icons.logout),
+          onPressed: widget.session.logout,
+        ),
+      ],
+    ),
+    body: Center(
+      child: _settings.error == null
+          ? const CircularProgressIndicator()
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_settings.error!, key: const Key('settings-error')),
+                TextButton(onPressed: _settings.load, child: const Text('Retry')),
+              ],
             ),
-          ],
-        ),
-        body: Center(
-          child: _settings.error == null
-              ? const CircularProgressIndicator()
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_settings.error!, key: const Key('settings-error')),
-                    TextButton(onPressed: _settings.load, child: const Text('Retry')),
-                  ],
-                ),
-        ),
-      );
+    ),
+  );
 
   /// Phone navigation. More than [_maxBarItems] sections do not fit (the labels
   /// wrap), so the waiter sections stay in the bar and the admin sections move
@@ -226,7 +281,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         if (overflow && i == _barSections) {
           _showMore(sections, index);
         } else {
-          setState(() => _index = i);
+          setState(() {
+              _index = i;
+              _selectedLabel = null;
+            });
         }
       },
       destinations: [
@@ -260,6 +318,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         ),
       ),
     );
-    if (picked != null) setState(() => _index = picked);
+    if (picked != null) {
+      setState(() {
+        _index = picked;
+        _selectedLabel = null;
+      });
+    }
   }
 }

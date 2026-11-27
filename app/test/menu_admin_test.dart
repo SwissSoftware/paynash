@@ -10,13 +10,13 @@ import 'support/fake_backend.dart';
 import 'support/test_image.dart';
 
 Future<FakeBackend> pumpAdmin(WidgetTester tester, void Function(FakeBackend) seed,
-    {ImagePicker? picker, VenueMode mode = VenueMode.event, bool vat = false}) async {
+    {ImagePicker? picker, bool salon = false, bool vat = false}) async {
   tester.view.physicalSize = const Size(1400, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final backend = FakeBackend()..addStaff('boss', 'admin', '1111');
   backend.sessions['t'] = backend.staff.first;
-  if (mode == VenueMode.salon) backend.salon.useSalon(vat: vat);
+  if (salon) backend.salon.useSalon(vat: vat);
   seed(backend);
   final api = MenuAdminApi(ApiClient(
       baseUrl: 'http://backend',
@@ -25,7 +25,10 @@ Future<FakeBackend> pumpAdmin(WidgetTester tester, void Function(FakeBackend) se
   await tester.pumpWidget(MaterialApp(
       home: Scaffold(
           body: MenuAdminScreen(
-              api: api, pickImage: picker ?? () async => null, mode: mode, vatEnabled: vat))));
+              api: api,
+              pickImage: picker ?? () async => null,
+              terms: salon ? const Terms(waiter: 'Staff', items: 'Services', send: 'Confirm') : Terms.standard,
+              vatEnabled: vat))));
   await tester.pumpAndSettle();
   return backend;
 }
@@ -148,19 +151,95 @@ void main() {
     expect(backend.categories, hasLength(1));
   });
 
+  Future<void> deleteViaMenu(WidgetTester tester, int id) async {
+    await tester.tap(find.byKey(Key('item-menu-$id')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('admin deletes an item that was never ordered', (tester) async {
+    late int id;
+    final backend = await pumpAdmin(tester, (b) {
+      final cat = b.addCategory('Hot drinks');
+      id = b.addItem(cat, 'Espreso', 'drink', '4.50');
+      b.addItem(cat, 'Tea', 'drink', '4.00');
+    });
+
+    await deleteViaMenu(tester, id);
+    expect(find.text('Delete Espreso?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('item-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(backend.items.map((i) => i['name']), ['Tea']);
+    expect(find.text('Espreso'), findsNothing);
+  });
+
+  testWidgets('cancelling the confirmation keeps the item', (tester) async {
+    late int id;
+    final backend = await pumpAdmin(tester, (b) {
+      id = b.addItem(b.addCategory('Hot drinks'), 'Espresso', 'drink', '4.50');
+    });
+
+    await deleteViaMenu(tester, id);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(backend.items, hasLength(1));
+    expect(find.text('Espresso'), findsOneWidget);
+  });
+
+  testWidgets('an ordered item cannot be deleted and can be deactivated instead', (tester) async {
+    late int id;
+    final backend = await pumpAdmin(tester, (b) {
+      id = b.addItem(b.addCategory('Pizzas'), 'Margherita', 'food', '18.00');
+      b.addSentOrder('12', b.staff.first, [(id, 1)]);
+    });
+
+    await deleteViaMenu(tester, id);
+    await tester.tap(find.byKey(const Key('item-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Margherita was already ordered and cannot be deleted. Deactivate it instead.'),
+        findsOneWidget);
+    await tester.tap(find.byKey(const Key('item-deactivate-instead')));
+    await tester.pumpAndSettle();
+
+    expect(backend.items.single['active'], false);
+    expect(find.text('CHF 18.00 · inactive'), findsOneWidget);
+  });
+
+  testWidgets('an inactive ordered item only offers OK', (tester) async {
+    late int id;
+    final backend = await pumpAdmin(tester, (b) {
+      id = b.addItem(b.addCategory('Pizzas'), 'Funghi', 'food', '20.00', active: false);
+      b.addSentOrder('12', b.staff.first, [(id, 1)]);
+    });
+
+    await deleteViaMenu(tester, id);
+    await tester.tap(find.byKey(const Key('item-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('item-deactivate-instead')), findsNothing);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(backend.items, hasLength(1));
+  });
+
   group('salon services', () {
-    testWidgets('admin creates a service with a duration and no type choice', (
+    testWidgets('admin creates a service with a duration; the type starts as service', (
       tester,
     ) async {
       final backend = await pumpAdmin(
         tester,
         (b) => b.addCategory('Face'),
-        mode: VenueMode.salon,
+        salon: true,
       );
       expect(find.text('Add service'), findsOneWidget);
       await tester.tap(find.byKey(const Key('item-add')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('item-type')), findsNothing);
+      // All types can be chosen; where items are called services, service is preselected.
+      expect(find.byKey(const Key('item-type')), findsOneWidget);
       expect(
         find.byKey(const Key('item-vat-rate')),
         findsNothing,
@@ -182,7 +261,7 @@ void main() {
       await pumpAdmin(
         tester,
         (b) => b.addCategory('Face'),
-        mode: VenueMode.salon,
+        salon: true,
       );
       await tester.tap(find.byKey(const Key('item-add')));
       await tester.pumpAndSettle();
@@ -201,7 +280,7 @@ void main() {
       final backend = await pumpAdmin(
         tester,
         (b) => b.addCategory('Face'),
-        mode: VenueMode.salon,
+        salon: true,
         vat: true,
       );
       await tester.tap(find.byKey(const Key('item-add')));
@@ -220,14 +299,15 @@ void main() {
       expect(backend.items.single['vatRate'], '2.6');
     });
 
-    testWidgets('event mode keeps food and drink without duration', (
+    testWidgets('event offers every type, a duration only for services', (
       tester,
     ) async {
       await pumpAdmin(tester, (b) => b.addCategory('Drinks'));
       await tester.tap(find.byKey(const Key('item-add')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('item-type')), findsOneWidget);
-      expect(find.text('Service'), findsNothing);
+      // Spec menu-catalog: item types no longer depend on a mode.
+      expect(find.text('Service'), findsOneWidget);
       expect(find.byKey(const Key('item-duration')), findsNothing);
     });
   });

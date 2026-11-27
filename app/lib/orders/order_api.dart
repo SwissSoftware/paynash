@@ -31,24 +31,22 @@ class OrderApi {
     return _remember(result.body);
   }
 
-  /// Sends the whole order. Pass the same [idempotencyKey] when retrying the
-  /// same draft, so an order that reached the server is not sent twice.
-  Future<OrderData> send(String tableLabel, List<DraftLine> lines, String idempotencyKey) async =>
-      _remember(
-        await api.post('/orders', {
-          'tableLabel': tableLabel,
-          'lines': [for (final l in lines) l.toJson()],
-        }, idempotencyKey),
-      );
-
-  /// Salon mode: confirms the order for a customer instead of a table.
-  Future<OrderData> confirm(int customerId, List<DraftLine> lines, String idempotencyKey) async =>
-      _remember(
-        await api.post('/orders', {
-          'customerId': customerId,
-          'lines': [for (final l in lines) l.toJson()],
-        }, idempotencyKey),
-      );
+  /// Sends (or confirms) the whole order. Which of [tableLabel] and
+  /// [customerId] are needed depends on the features (spec order-taking). Pass
+  /// the same [idempotencyKey] when retrying the same draft, so an order that
+  /// reached the server is not sent twice.
+  Future<OrderData> send(
+    List<DraftLine> lines,
+    String idempotencyKey, {
+    String? tableLabel,
+    int? customerId,
+  }) async => _remember(
+    await api.post('/orders', {
+      'tableLabel': ?tableLabel,
+      'customerId': ?customerId,
+      'lines': [for (final l in lines) l.toJson()],
+    }, idempotencyKey),
+  );
 
   Future<OrderData> cancelLine(int orderId, int lineId, String reason) async => _remember(
     await api.post('/admin/orders/$orderId/lines/$lineId/cancel', {

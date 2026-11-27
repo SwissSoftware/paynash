@@ -7,16 +7,21 @@ import 'support/recording_file_saver.dart';
 /// A salon with three invoices of November 2026 and one of October:
 /// 2026-0001 Laura (October), 2026-0002 Laura open, 2026-0003 Peter paid,
 /// 2026-0004 Peter cancelled.
-Future<AppHarness> start(WidgetTester tester, {bool admin = false, bool printer = true}) async {
+Future<AppHarness> start(
+  WidgetTester tester, {
+  bool admin = false,
+  bool printer = true,
+  bool counterSale = false,
+}) async {
   final app = AppHarness(tester);
   final b = app.backend;
   b.addStaff('anna', 'waiter', '4711', displayName: 'Anna');
   b.addStaff('boss', 'admin', '1111', displayName: 'Boss');
   b.salon.useSalon();
-  if (printer) b.addPrinter('Counter', 'receipt');
+  if (printer) b.addPrinter('Counter', tickets: false, receipts: true);
   final laura = b.salon.addCustomer('Laura', 'Meier');
   final peter = b.salon.addCustomer('Peter', 'Meili');
-  Map<String, dynamic> invoice(int id, String number, int customer, String name, String date,
+  Map<String, dynamic> invoice(int id, String number, int? customer, String? name, String date,
           String status) =>
       {
         'id': id,
@@ -41,13 +46,15 @@ Future<AppHarness> start(WidgetTester tester, {bool admin = false, bool printer 
             {'method': 'card', 'paidOn': date, 'recordedBy': 'Anna', 'removedBy': null,
              'removeReason': null},
         ],
-        'receipt': {'kind': 'normal', 'type': 'receipt', 'status': 'printed'},
+        'receipt': {'kind': 'normal', 'printer': 'Counter', 'status': 'printed'},
       };
   b.salon.invoices.addAll([
     invoice(1, '2026-0001', laura, 'Laura Meier', '2026-10-30', 'open'),
     invoice(2, '2026-0002', laura, 'Laura Meier', '2026-11-02', 'open'),
     invoice(3, '2026-0003', peter, 'Peter Meili', '2026-11-05', 'paid'),
     invoice(4, '2026-0004', peter, 'Peter Meili', '2026-11-06', 'cancelled'),
+    // A counter sale without customer (change invoices-without-customer).
+    if (counterSale) invoice(5, '2026-0005', null, null, '2026-11-07', 'open'),
   ]);
   await app.start();
   await app.login(admin ? 'boss' : 'anna', admin ? '1111' : '4711');
@@ -159,19 +166,47 @@ void main() {
       final app = await start(tester, printer: false);
       app.backend.salon.invoice(2)['receipt'] = {
         'kind': 'normal',
-        'type': 'receipt',
+        'printer': 'Counter',
         'status': 'failed',
-        'error': 'no printer configured',
+        'error': 'no active printer',
       };
       await goToNovember(tester);
       await openInvoiceTile(tester, '2026-0002');
-      expect(find.text('Receipt failed: no printer configured'), findsOneWidget);
+      expect(find.text('Receipt failed: no active printer'), findsOneWidget);
 
-      app.backend.addPrinter('Counter', 'receipt');
+      app.backend.addPrinter('Counter', tickets: false, receipts: true);
       await tester.tap(find.byKey(const Key('invoice-print-copy')));
       await tester.pumpAndSettle();
       expect(app.backend.salon.copies, ['2026-0002']);
       expect(find.text('Receipt printed'), findsOneWidget);
+    });
+
+    testWidgets('shows the receipt status of each receipt printer', (tester) async {
+      final app = await start(tester);
+      app.backend.salon.invoice(2)['receipts'] = [
+        {'kind': 'normal', 'printer': 'Counter', 'status': 'printed'},
+        {'kind': 'normal', 'printer': 'Office', 'status': 'unclear', 'error': 'no answer'},
+      ];
+      await goToNovember(tester);
+      await openInvoiceTile(tester, '2026-0002');
+
+      expect(find.text('Counter: Receipt printed'), findsOneWidget);
+      expect(
+        find.text('Office: Receipt unclear: check the receipt and print a copy if needed'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('without a receipt printer the invoice says no receipt was printed', (tester) async {
+      final app = await start(tester, printer: false);
+      app.backend.salon.invoice(2)
+        ..['receipt'] = null
+        ..['receipts'] = <Object>[];
+      await goToNovember(tester);
+      await openInvoiceTile(tester, '2026-0002');
+
+      expect(find.byKey(const Key('invoice-receipt-none')), findsOneWidget);
+      expect(find.text('No receipt printed: no printer has receipts switched on'), findsOneWidget);
     });
 
     testWidgets('downloads the PDF', (tester) async {
@@ -184,6 +219,19 @@ void main() {
       expect(saver.saved.single.name, 'Rechnung-2026-0002.pdf');
       expect(saver.saved.single.mimeType, 'application/pdf');
       expect(find.text('Saved Rechnung-2026-0002.pdf'), findsOneWidget);
+    });
+
+    testWidgets('an invoice without customer shows "Ohne Kunde" and no recipient', (tester) async {
+      await start(tester, counterSale: true);
+      await goToNovember(tester);
+      expect(
+        find.descendant(of: listed('2026-0005'), matching: find.text('2026-0005 · Ohne Kunde')),
+        findsOneWidget,
+      );
+      await openInvoiceTile(tester, '2026-0005');
+      expect(find.byKey(const Key('invoice-without-customer')), findsOneWidget);
+      expect(find.textContaining('Customer no.'), findsNothing);
+      expect(find.text('120.00'), findsWidgets);
     });
   });
 }

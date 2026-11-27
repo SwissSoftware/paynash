@@ -1,8 +1,26 @@
 # Event setup
 
-How to set up the network, the printers, and the print stations for a festival or any event with many waiters. The
-goal: no ticket is lost or printed twice without someone noticing (change `harden-printing-for-events`). Read
-[printing.md](printing.md) for the printer setup itself and [operations.md](operations.md) for the server.
+Guide for the business templates **Event** and **Restaurant** (change `configurable-business-features`): how to set
+up the network, the printers, and the print stations for a festival or any event with many waiters. The goal: no
+ticket is lost or printed twice without someone noticing (change `harden-printing-for-events`). Read
+[printing.md](printing.md) for the printer setup itself and [operations.md](operations.md) for the server. For a salon
+see [salon-setup.md](salon-setup.md), for a café or shop [counter-setup.md](counter-setup.md).
+
+## Choose the template
+
+As admin, open **Settings** and tap under **Business template**:
+
+- **Event**: switches on **Tables** and **Stations**. Waiters send orders for a table; kitchen and bar print the
+  categories assigned to them.
+- **Restaurant**: like Event, plus **Customers**, **Invoices**, and **Sales report**. A waiter can add a customer to
+  a table order (for example a company that wants an invoice) and send and invoice it in one step. Orders without a
+  customer work exactly as at an event; guests can still get a receipt without recipient up to CHF 400.00 (**Send
+  and invoice**, or **Issue invoice** in the history; change `invoices-without-customer`).
+
+An event can switch on **Invoices** and **Sales report** under **Features** as well, also without **Customers**.
+
+Both templates name waiters **Waiter**, menu items **Menu**, and sending **Send**. Installations that ran in event
+mode before this version start with the Event template.
 
 ## Overview
 

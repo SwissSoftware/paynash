@@ -18,7 +18,7 @@ class EposClientTest {
 	private final EposClient client = new EposClient(Duration.ofSeconds(1), Duration.ofMillis(400));
 
 	private static Printer printer(String address) {
-		return new Printer(1, "Bar", address, "local_printer", PrintPurpose.DRINK, true);
+		return new Printer(1, "Bar", address, "local_printer", true, false, true);
 	}
 
 	@Test
@@ -88,6 +88,16 @@ class EposClientTest {
 			assertThat(client.print(printer(fake.address()), ticket())).isInstanceOf(Result.Printed.class);
 			assertThat(fake.requests).hasSize(2).allSatisfy(r -> assertThat(r).contains("<text>Table 1&#10;</text>"));
 			assertThat(fake.queries).allSatisfy(q -> assertThat(q).isEqualTo("devid=local_printer&timeout=400"));
+		}
+	}
+
+	/** Epson's web server closes the connection on an h2c upgrade request (fix-epos-http-version). */
+	@Test
+	void talksPlainHttp11WithoutUpgrade() throws Exception {
+		try (var fake = new FakeEposPrinter()) {
+			assertThat(client.print(printer(fake.address()), ticket())).isInstanceOf(Result.Printed.class);
+			assertThat(fake.headers).hasSize(1)
+				.allSatisfy(h -> assertThat(h).doesNotContainKeys("Upgrade", "Http2-settings", "HTTP2-Settings"));
 		}
 	}
 

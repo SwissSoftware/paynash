@@ -1,7 +1,9 @@
 package ch.paynash.pos.invoice;
 
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -42,7 +44,7 @@ public class InvoiceReceipts {
 	 * a receipt that is about to come out.
 	 */
 	@Transactional
-	public PrintJob copy(long invoiceId) {
+	public List<PrintJob> copy(long invoiceId) {
 		Invoice invoice = invoices.findForUpdate(invoiceId).orElseThrow(() -> ApiException.notFound("Invoice"));
 		if (printJobs.receipts(invoiceId).stream().anyMatch(PrintJob::inProgress)) {
 			throw ApiException.conflict("The receipt is still being printed");
@@ -52,10 +54,27 @@ public class InvoiceReceipts {
 				invoice.lines().size());
 	}
 
-	/** The latest receipt job of the invoice, if any (spec ticket-printing, "Receipt status on the invoice"). */
+	/** The latest receipt job of the invoice, if any. */
 	public Optional<PrintJob> latest(long invoiceId) {
 		List<PrintJob> jobs = printJobs.receipts(invoiceId);
 		return jobs.stream().max(Comparator.comparingLong(PrintJob::id));
+	}
+
+	/**
+	 * The latest receipt job per printer, ordered by printer name (spec ticket-printing, "Receipt status on the
+	 * invoice"; change printer-category-routing design D5).
+	 */
+	public List<PrintJob> latestPerPrinter(long invoiceId) {
+		Map<Long, PrintJob> latest = new HashMap<>();
+		for (PrintJob job : printJobs.receipts(invoiceId)) {
+			latest.merge(job.printerId() == null ? -job.id() : job.printerId(), job,
+					(a, b) -> a.id() > b.id() ? a : b);
+		}
+		return latest.values()
+			.stream()
+			.sorted(Comparator.comparing((PrintJob j) -> j.printerName() == null ? "" : j.printerName().toLowerCase())
+				.thenComparingLong(PrintJob::id))
+			.toList();
 	}
 
 }

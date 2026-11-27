@@ -26,6 +26,12 @@ import ch.paynash.pos.settings.SettingsService;
 @Service
 public class InvoiceService {
 
+	/**
+	 * Swiss VAT law accepts a receipt without the recipient's name and address up to CHF 400 (small-amount receipt), so
+	 * an invoice without customer may not exceed it (spec invoicing, "Small-amount limit without customer").
+	 */
+	static final long SMALL_AMOUNT_LIMIT_RAPPEN = 40_000;
+
 	private final InvoiceRepository invoices;
 
 	private final OrderRepository orders;
@@ -66,7 +72,7 @@ public class InvoiceService {
 	}
 
 	/**
-	 * Issues the invoice of a confirmed salon order. The order row is locked, the same lock cancelling and voiding
+	 * Issues the invoice of a confirmed order, with or without customer. The order row is locked, the same lock cancelling and voiding
 	 * take, so an invoice and a correction of the same order cannot overlap. The number comes from the year's
 	 * counter in the same transaction, so a failure leaves no gap. The receipt is queued in the same transaction.
 	 */
@@ -79,9 +85,6 @@ public class InvoiceService {
 				.with("missingDetails", missing);
 		}
 		Order order = orders.findForUpdate(orderId).orElseThrow(() -> ApiException.notFound("Order"));
-		if (order.customerId() == null) {
-			throw ApiException.conflict("Only orders for a customer can be invoiced");
-		}
 		if (order.status() != OrderStatus.SENT) {
 			throw ApiException.conflict("The order is " + order.status().dbValue() + " and cannot be invoiced");
 		}
@@ -99,7 +102,7 @@ public class InvoiceService {
 		if (lines.isEmpty()) {
 			throw ApiException.conflict("The order has no lines to invoice");
 		}
-		Customer c = customers.findById(order.customerId()).orElseThrow();
+		Customer c = order.customerId() == null ? null : customers.findById(order.customerId()).orElseThrow();
 
 		List<InvoiceRepository.NewLine> newLines = new ArrayList<>();
 		List<Vat.Amount> amounts = new ArrayList<>();
@@ -112,6 +115,10 @@ public class InvoiceService {
 			newLines.add(new InvoiceRepository.NewLine(position++, l.id(), l.name(), l.category(), l.qty(),
 					l.unitPriceRappen(), l.vatRatePermille(), amount, l.note()));
 		}
+		// Before the number is drawn, so a rejected invoice uses no number (change invoices-without-customer, D2).
+		if (c == null && total > SMALL_AMOUNT_LIMIT_RAPPEN) {
+			throw ApiException.conflict("Invoices above CHF 400.00 need a customer").with("code", "customer_required");
+		}
 		List<Vat.Row> vat = s.vatEnabled() ? Vat.breakdown(amounts) : List.of();
 
 		LocalDate date = today();
@@ -119,8 +126,10 @@ public class InvoiceService {
 		String number = "%d-%04d".formatted(date.getYear(), seq);
 		var business = new Invoice.Business(s.businessName(), s.street(), s.postalCode(), s.city(), s.phone(),
 				s.email(), s.website(), s.iban(), s.accountHolder());
-		var customer = new Invoice.CustomerCopy(c.number(), c.displayName(), c.street(), c.postalCode(), c.city());
-		long id = invoices.insert(new InvoiceRepository.NewInvoice(number, date.getYear(), seq, orderId, c.id(), date,
+		var customer = c == null ? null
+				: new Invoice.CustomerCopy(c.number(), c.displayName(), c.street(), c.postalCode(), c.city());
+		long id = invoices.insert(new InvoiceRepository.NewInvoice(number, date.getYear(), seq, orderId,
+				c == null ? null : c.id(), date,
 				clock.instant(), staff.id(), business, customer, s.vatEnabled(), s.vatEnabled() ? s.vatUid() : null,
 				total), newLines, vat);
 		Invoice invoice = get(id);

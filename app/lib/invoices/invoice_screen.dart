@@ -133,7 +133,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
   Widget _content(BuildContext context, InvoiceData i) {
     final text = Theme.of(context).textTheme;
     final error = Theme.of(context).colorScheme.error;
-    final receipt = i.receipt;
+    final receipts = i.receipts;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -149,9 +149,12 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
             style: TextStyle(color: error),
           ),
         const SizedBox(height: 8),
-        Text('Customer no. ${i.customerNumber}', style: text.labelLarge),
-        Text(i.customerName),
-        for (final line in i.customerAddress) Text(line),
+        if (i.hasCustomer) ...[
+          Text('Customer no. ${i.customerNumber}', style: text.labelLarge),
+          Text(i.customerLabel),
+          for (final line in i.customerAddress) Text(line),
+        ] else
+          Text(i.customerLabel, key: const Key('invoice-without-customer'), style: text.labelLarge),
         const Divider(height: 24),
         for (final l in i.lines)
           ListTile(
@@ -188,12 +191,20 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
             '(${p.removedBy})',
             style: text.bodySmall,
           ),
-        if (receipt != null)
+        if (receipts.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'No receipt printed: no printer has receipts switched on',
+              key: Key('invoice-receipt-none'),
+            ),
+          ),
+        for (final (n, receipt) in receipts.indexed)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
-              receipt.text,
-              key: const Key('invoice-receipt-status'),
+              receipt.textOn(withPrinter: receipts.length > 1),
+              key: Key(n == 0 ? 'invoice-receipt-status' : 'invoice-receipt-status-$n'),
               style: receipt.needsAttention ? TextStyle(color: error) : null,
             ),
           ),
@@ -204,7 +215,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
           children: [
             OutlinedButton.icon(
               key: const Key('invoice-print-copy'),
-              onPressed: _busy || (receipt?.inProgress ?? false)
+              onPressed: _busy || receipts.any((r) => r.inProgress)
                   ? null
                   : () => _run(() async {
                       await widget.api.printCopy(i.id);

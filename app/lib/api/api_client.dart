@@ -37,6 +37,11 @@ class ApiClient {
   /// Set by the session controller.
   void Function()? onUnauthorized;
 
+  /// Set by the home shell: a 409 with `code: feature_disabled` means an admin
+  /// switched a feature off since the settings were loaded, so they are loaded
+  /// again (change configurable-business-features, risks).
+  void Function()? onFeatureDisabled;
+
   Future<dynamic> get(String path) => _send('GET', path);
 
   /// With [idempotencyKey] the request is retried once with the same key if
@@ -120,7 +125,11 @@ class ApiClient {
       onUnauthorized?.call();
     }
     if (response.statusCode >= 400) {
-      throw _toError(response);
+      final error = _toError(response);
+      if (response.statusCode == 409 && error.details['code'] == 'feature_disabled') {
+        onFeatureDisabled?.call();
+      }
+      throw error;
     }
     return response;
   }

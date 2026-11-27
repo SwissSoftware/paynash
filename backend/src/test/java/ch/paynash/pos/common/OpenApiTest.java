@@ -31,7 +31,7 @@ class OpenApiTest extends IntegrationTest {
 		assertThat(api.getPaths()).containsKeys("/admin/printers", "/admin/printers/{id}", "/admin/printers/{id}/test",
 				"/orders/{orderId}/tickets/{ticketId}/reprint");
 		assertThat(api.getPaths()).containsKey("/exports/orders.csv");
-		assertThat(api.getPaths()).containsKeys("/settings", "/admin/settings", "/admin/settings/mode");
+		assertThat(api.getPaths()).containsKeys("/settings", "/admin/settings", "/admin/settings/features", "/admin/settings/terms", "/admin/settings/template");
 		assertThat(api.getPaths()).containsKeys("/customers", "/customers/{id}", "/customers/duplicates",
 				"/admin/customers/{id}", "/admin/customers/{id}/deactivate", "/admin/customers/{id}/reactivate",
 				"/admin/customers/{id}/export");

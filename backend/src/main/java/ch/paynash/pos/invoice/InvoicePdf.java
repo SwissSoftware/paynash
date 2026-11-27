@@ -78,22 +78,25 @@ public class InvoicePdf {
 		}
 		place(writer, sender, MARGIN, 20, 95, 40);
 
-		// Recipient in the envelope window.
+		// Recipient in the envelope window; left empty for an invoice without customer (design D3).
 		Invoice.CustomerCopy c = invoice.customer();
-		var recipient = new Phrase();
-		recipient.add(new Phrase(c.name() + "\n", normal));
-		if (c.street() != null) {
-			recipient.add(new Phrase(c.street() + "\n", normal));
+		if (c != null) {
+			var recipient = new Phrase();
+			recipient.add(new Phrase(c.name() + "\n", normal));
+			if (c.street() != null) {
+				recipient.add(new Phrase(c.street() + "\n", normal));
+			}
+			String place = ((c.postalCode() == null ? "" : c.postalCode()) + " " + (c.city() == null ? "" : c.city()))
+				.trim();
+			if (!place.isEmpty()) {
+				recipient.add(new Phrase(place + "\n", normal));
+			}
+			place(writer, recipient, Utilities.millimetersToPoints(118), 50, 72, 30);
 		}
-		String place = ((c.postalCode() == null ? "" : c.postalCode()) + " " + (c.city() == null ? "" : c.city()))
-			.trim();
-		if (!place.isEmpty()) {
-			recipient.add(new Phrase(place + "\n", normal));
-		}
-		place(writer, recipient, Utilities.millimetersToPoints(118), 50, 72, 30);
 
 		doc.add(new Paragraph("Rechnung " + invoice.number(), font(true, 16, null)));
-		doc.add(new Paragraph("Datum: " + DATE.format(invoice.invoiceDate()) + "     Kunde Nr. " + c.number(),
+		doc.add(new Paragraph(
+				"Datum: " + DATE.format(invoice.invoiceDate()) + (c == null ? "" : "     Kunde Nr. " + c.number()),
 				normal));
 		if (invoice.status() == Invoice.Status.CANCELLED) {
 			var cancelled = new Paragraph("STORNIERT am " + DATE.format(invoice.cancelledAt().atZone(zone))

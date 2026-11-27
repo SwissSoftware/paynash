@@ -130,17 +130,17 @@ class StationTicketsTest extends PrintingTestSupport {
 	@Test
 	void eachPollRecordsWhenTheStationWasLastSeenForAdmins() throws Exception {
 		String admin = adminToken();
-		as(admin, get("/admin/printers")).andExpect(jsonPath("$[0].name").value("Bar"))
-			.andExpect(jsonPath("$[0].stations[0].name").value("station-bar Display"))
-			.andExpect(jsonPath("$[0].stations[0].lastSeenAt").doesNotExist());
+		as(admin, get("/admin/printers")).andExpect(jsonPath("$.printers[0].name").value("Bar"))
+			.andExpect(jsonPath("$.printers[0].stations[0].name").value("station-bar Display"))
+			.andExpect(jsonPath("$.printers[0].stations[0].lastSeenAt").doesNotExist());
 
 		as(barStation, get("/station/printers")).andExpect(status().isOk());
-		as(admin, get("/admin/printers")).andExpect(jsonPath("$[0].stations[0].lastSeenAt").value("2026-10-29T18:30:00Z"));
+		as(admin, get("/admin/printers")).andExpect(jsonPath("$.printers[0].stations[0].lastSeenAt").value("2026-10-29T18:30:00Z"));
 
 		clock.advance(Duration.ofSeconds(2));
 		tickets(bar).andExpect(status().isOk());
-		as(admin, get("/admin/printers")).andExpect(jsonPath("$[0].stations[0].lastSeenAt").value("2026-10-29T18:30:02Z"))
-			.andExpect(jsonPath("$[1].stations.length()").value(0));
+		as(admin, get("/admin/printers")).andExpect(jsonPath("$.printers[0].stations[0].lastSeenAt").value("2026-10-29T18:30:02Z"))
+			.andExpect(jsonPath("$.printers[1].stations.length()").value(0));
 	}
 
 	private org.springframework.test.web.servlet.ResultActions tickets(long printerId) throws Exception {

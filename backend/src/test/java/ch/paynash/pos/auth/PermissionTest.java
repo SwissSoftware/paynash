@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-import ch.paynash.pos.settings.Mode;
+import ch.paynash.pos.settings.Template;
 import ch.paynash.pos.staff.Role;
 import ch.paynash.pos.support.IntegrationTest;
 
@@ -85,26 +85,34 @@ class PermissionTest extends IntegrationTest {
 		mvc.perform(get("/health")).andExpect(status().isOk());
 	}
 
+	/** Spec business-features, "Functions follow the features"; spec staff-access, station scenarios (design D6). */
 	@Test
-	void salonModeRejectsTableAndStationFunctions() throws Exception {
+	void switchedOffTablesAndStationsAreRejected() throws Exception {
 		createStaff("boss", Role.ADMIN, "1111");
 		createStaff("station-bar", Role.STATION, "5555");
 		String stationToken = login("station-bar", "5555");
 		String admin = login("boss", "1111");
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 
 		for (String path : new String[] { "/tables", "/admin/tables" }) {
 			mvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, bearer(admin)))
 				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("wrong_mode"));
+				.andExpect(jsonPath("$.code").value("feature_disabled"));
 		}
+		// The logged-in station's session no longer counts, so it returns to the login screen.
 		mvc.perform(get("/station/printers").header(HttpHeaders.AUTHORIZATION, bearer(stationToken)))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("wrong_mode"));
+			.andExpect(status().isUnauthorized());
 		mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
 			.content(json("username", "station-bar", "pin", "5555")))
 			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.detail").value("Station accounts cannot log in in salon mode"));
+			.andExpect(jsonPath("$.detail").value("Station accounts cannot log in while stations are off"));
+
+		settingsService.applyTemplate(Template.EVENT);
+		mvc.perform(get("/station/printers").header(HttpHeaders.AUTHORIZATION, bearer(stationToken)))
+			.andExpect(status().isOk());
+		mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+			.content(json("username", "station-bar", "pin", "5555")))
+			.andExpect(status().isOk());
 	}
 
 	@Test

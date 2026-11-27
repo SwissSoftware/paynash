@@ -4,7 +4,6 @@ import '../api/api_client.dart';
 import '../invoices/invoice_api.dart';
 import '../invoices/invoice_screen.dart';
 import '../menu/item_visuals.dart';
-import '../menu/menu_models.dart';
 import 'order_api.dart';
 import 'order_history_screen.dart';
 import 'order_models.dart';
@@ -103,9 +102,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
     try {
       final invoice = await widget.invoiceApi!.issue(order.id, newIdempotencyKey());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invoice ${invoice.number} issued')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Invoice ${invoice.number} issued')));
     } on ApiError catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
@@ -123,9 +121,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
 
   Future<void> _void(OrderData order) async {
     final reason = await _askReason(
-      order.isSalon
+      order.tableLabel != null
+          ? 'Void the order for table ${order.tableLabel}?'
+          : order.hasCustomer
           ? 'Void the order of ${order.customerName}?'
-          : 'Void the order for table ${order.tableLabel}?',
+          : 'Void this order?',
       'Void order',
     );
     if (reason == null) return;
@@ -189,7 +189,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
                 ),
               ),
             ),
-          if (order.isSalon && order.status == OrderStatus.sent && widget.invoiceApi != null)
+          // Every sent order can be invoiced while invoices are on (change invoices-without-customer).
+          if (order.status == OrderStatus.sent && widget.invoiceApi != null)
             ListTile(
               key: const Key('order-invoice'),
               leading: const Icon(Icons.receipt),
@@ -279,14 +280,14 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with Polling {
   }
 }
 
-/// "Kitchen ticket", "Bar STORNO", "Kitchen reprint"; the type when no
-/// printer was configured.
+/// "Kitchen ticket", "Bar STORNO", "Kitchen reprint"; "Ticket", "STORNO",
+/// "Reprint" for old tickets without a printer.
 String _ticketName(TicketData t) {
-  final where = t.printer ?? (t.type == ItemType.food ? 'Food' : 'Drinks');
+  final where = t.printer;
   return switch (t.kind) {
-    TicketKind.normal => '$where ticket',
-    TicketKind.storno => '$where STORNO',
-    TicketKind.reprint => '$where reprint',
+    TicketKind.normal => where == null ? 'Ticket' : '$where ticket',
+    TicketKind.storno => where == null ? 'STORNO' : '$where STORNO',
+    TicketKind.reprint => where == null ? 'Reprint' : '$where reprint',
   };
 }
 

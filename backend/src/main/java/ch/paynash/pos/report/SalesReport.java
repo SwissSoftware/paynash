@@ -30,16 +30,16 @@ public record SalesReport(LocalDate from, LocalDate to, Summary summary, List<Da
 	}
 
 	/** {@code name} is "Deleted customer" for an anonymized customer. */
-	public record Customer(int number, String name, int invoiceCount, long revenueRappen) {
+	public record Customer(Integer number, String name, int invoiceCount, long revenueRappen) {
 	}
 
 	/** Every invoice of the period, also cancelled ones. {@code status} is open, paid, or cancelled. */
-	public record InvoiceRow(String number, LocalDate date, int customerNumber, String customerName, long totalRappen,
+	public record InvoiceRow(String number, LocalDate date, Integer customerNumber, String customerName, long totalRappen,
 			long vatRappen, String status, String paymentMethod, LocalDate paidOn) {
 	}
 
 	/** Every line of the invoices of the period that are not cancelled. */
-	public record LineRow(String invoiceNumber, LocalDate date, int customerNumber, String customerName, String service,
+	public record LineRow(String invoiceNumber, LocalDate date, Integer customerNumber, String customerName, String service,
 			String category, int quantity, long unitPriceRappen, int vatRatePermille, long amountRappen) {
 	}
 

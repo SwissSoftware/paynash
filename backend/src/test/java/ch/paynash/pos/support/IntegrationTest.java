@@ -75,6 +75,7 @@ public abstract class IntegrationTest {
 	void resetState() {
 		jdbc.sql("DELETE FROM idempotency_key").update();
 		jdbc.sql("DELETE FROM print_job").update();
+		jdbc.sql("DELETE FROM order_line_printer").update();
 		jdbc.sql("DELETE FROM printer").update();
 		jdbc.sql("DELETE FROM invoice_payment").update();
 		jdbc.sql("DELETE FROM invoice_vat").update();
@@ -85,7 +86,9 @@ public abstract class IntegrationTest {
 		jdbc.sql("DELETE FROM orders").update();
 		jdbc.sql("DELETE FROM customer").update();
 		jdbc.sql("""
-				UPDATE installation_settings SET mode = 'event', business_name = NULL, street = NULL,
+				UPDATE installation_settings SET template = 'event', feature_tables = TRUE, feature_stations = TRUE,
+				    feature_customers = FALSE, feature_invoices = FALSE, feature_sales_report = FALSE,
+				    term_waiter = 'Waiter', term_items = 'Menu', term_send = 'Send', business_name = NULL, street = NULL,
 				    postal_code = NULL, city = NULL, phone = NULL, email = NULL, website = NULL, iban = NULL,
 				    account_holder = NULL, vat_enabled = FALSE, vat_uid = NULL""").update();
 		settingsService.clearCache();

@@ -26,10 +26,15 @@ public class ReportService {
 	/** Not cancelled, i.e. counts as revenue. */
 	private static final String COUNTS = "i.status = 'issued'";
 
+	/** Null for an invoice without customer (change invoices-without-customer, design D4). */
 	private static final String CUSTOMER_NAME = """
-			CASE WHEN cu.anonymized_at IS NOT NULL THEN '%s'
+			CASE WHEN cu.id IS NULL THEN NULL
+			     WHEN cu.anonymized_at IS NOT NULL THEN '%s'
 			     ELSE trim(coalesce(cu.first_name, '') || ' ' || coalesce(cu.last_name, '')) END"""
 		.formatted(Customer.DELETED_NAME);
+
+	/** The entry that collects all invoices without customer in the customer list (spec sales-reporting). */
+	static final String WITHOUT_CUSTOMER = "Ohne Kunde";
 
 	private final JdbcClient jdbc;
 
@@ -121,12 +126,13 @@ public class ReportService {
 
 	private List<SalesReport.Customer> customers(LocalDate from, LocalDate to) {
 		return jdbc.sql("""
-				SELECT cu.number, %s AS name, count(i.id) AS invoices, sum(i.total_rappen) AS revenue
-				FROM invoice i JOIN customer cu ON cu.id = i.customer_id
+				SELECT cu.number, coalesce(%s, '%s') AS name, count(i.id) AS invoices, sum(i.total_rappen) AS revenue
+				FROM invoice i LEFT JOIN customer cu ON cu.id = i.customer_id
 				WHERE %s AND i.invoice_date BETWEEN ? AND ?
-				GROUP BY cu.id ORDER BY revenue DESC, cu.number""".formatted(CUSTOMER_NAME, COUNTS))
+				GROUP BY cu.id ORDER BY revenue DESC, cu.number NULLS FIRST""".formatted(CUSTOMER_NAME,
+				WITHOUT_CUSTOMER, COUNTS))
 			.params(from, to)
-			.query((rs, n) -> new SalesReport.Customer(rs.getInt("number"), rs.getString("name"),
+			.query((rs, n) -> new SalesReport.Customer(rs.getObject("number", Integer.class), rs.getString("name"),
 					rs.getInt("invoices"), rs.getLong("revenue")))
 			.list();
 	}
@@ -139,13 +145,13 @@ public class ReportService {
 				            ELSE 'open' END AS status,
 				       CASE WHEN i.status = 'issued' THEN p.method END AS method,
 				       CASE WHEN i.status = 'issued' THEN p.paid_on END AS paid_on
-				FROM invoice i JOIN customer cu ON cu.id = i.customer_id
+				FROM invoice i LEFT JOIN customer cu ON cu.id = i.customer_id
 				LEFT JOIN invoice_payment p ON p.invoice_id = i.id AND p.removed_at IS NULL
 				WHERE i.invoice_date BETWEEN ? AND ?
 				ORDER BY i.invoice_date, i.year, i.seq""".formatted(CUSTOMER_NAME))
 			.params(from, to)
 			.query((rs, n) -> new SalesReport.InvoiceRow(rs.getString("number"),
-					rs.getObject("invoice_date", LocalDate.class), rs.getInt("customer_number"),
+					rs.getObject("invoice_date", LocalDate.class), rs.getObject("customer_number", Integer.class),
 					rs.getString("customer_name"), rs.getLong("total_rappen"), rs.getLong("vat"),
 					rs.getString("status"), rs.getString("method"), rs.getObject("paid_on", LocalDate.class)))
 			.list();
@@ -155,12 +161,12 @@ public class ReportService {
 		return jdbc.sql("""
 				SELECT i.number, i.invoice_date, cu.number AS customer_number, %s AS customer_name, l.name, l.category,
 				       l.qty, l.unit_price_rappen, l.vat_rate_permille, l.amount_rappen
-				FROM invoice_line l JOIN invoice i ON i.id = l.invoice_id JOIN customer cu ON cu.id = i.customer_id
+				FROM invoice_line l JOIN invoice i ON i.id = l.invoice_id LEFT JOIN customer cu ON cu.id = i.customer_id
 				WHERE %s AND i.invoice_date BETWEEN ? AND ?
 				ORDER BY i.invoice_date, i.year, i.seq, l.position""".formatted(CUSTOMER_NAME, COUNTS))
 			.params(from, to)
 			.query((rs, n) -> new SalesReport.LineRow(rs.getString("number"),
-					rs.getObject("invoice_date", LocalDate.class), rs.getInt("customer_number"),
+					rs.getObject("invoice_date", LocalDate.class), rs.getObject("customer_number", Integer.class),
 					rs.getString("customer_name"), rs.getString("name"), rs.getString("category"), rs.getInt("qty"),
 					rs.getLong("unit_price_rappen"), rs.getInt("vat_rate_permille"), rs.getLong("amount_rappen")))
 			.list();

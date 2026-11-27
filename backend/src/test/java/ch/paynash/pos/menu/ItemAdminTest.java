@@ -1,8 +1,11 @@
 package ch.paynash.pos.menu;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -11,9 +14,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.ResultActions;
 
-import ch.paynash.pos.settings.Mode;
+import com.jayway.jsonpath.JsonPath;
+
+import ch.paynash.pos.settings.Template;
+import ch.paynash.pos.staff.Role;
 
 class ItemAdminTest extends MenuTestSupport {
 
@@ -107,15 +114,84 @@ class ItemAdminTest extends MenuTestSupport {
 	}
 
 	@Test
-	void deactivateAndReactivateInsteadOfDelete() throws Exception {
+	void deactivateAndReactivate() throws Exception {
 		long id = createItem(hotDrinks, "Tiramisu", "food", "9.00");
 		update(id, json("categoryId", hotDrinks, "name", "Tiramisu", "type", "food", "price", "9.00", "active", false))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.active").value(false));
 		update(id, json("categoryId", hotDrinks, "name", "Tiramisu", "type", "food", "price", "9.00", "active", true))
 			.andExpect(jsonPath("$.active").value(true));
-		mvc.perform(delete("/admin/items/" + id).header(HttpHeaders.AUTHORIZATION, bearer(admin)))
-			.andExpect(status().isMethodNotAllowed());
+	}
+
+	@Test
+	void deleteDrinkThatWasNeverOrderedRemovesItAndItsImage() throws Exception {
+		long id = createItem(hotDrinks, "Espreso", "drink", "4.50");
+		String url = uploadImage(id);
+		mvc.perform(get(url)).andExpect(status().isOk());
+
+		deleteItem(id, admin).andExpect(status().isNoContent());
+
+		mvc.perform(get("/admin/items").header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(jsonPath("$[?(@.id == " + id + ")]").isEmpty());
+		mvc.perform(get(url)).andExpect(status().isNotFound());
+		deleteItem(id, admin).andExpect(status().isNotFound());
+	}
+
+	@Test
+	void deleteServiceThatWasNeverOrdered() throws Exception {
+		long face = createCategory("Face");
+		long id = createItem(face, "Test service", "service", "50.00");
+		deleteItem(id, admin).andExpect(status().isNoContent());
+		assertThat(jdbc.sql("SELECT count(*) FROM menu_item WHERE id = ?").param(id).query(Long.class).single())
+			.isZero();
+	}
+
+	@Test
+	void sharedImageStaysWhileAnotherItemUsesIt() throws Exception {
+		long a = createItem(hotDrinks, "Espresso", "drink", "4.50");
+		long b = createItem(hotDrinks, "Ristretto", "drink", "4.50");
+		String url = uploadImage(a);
+		jdbc.sql("UPDATE menu_item SET image_ref = (SELECT image_ref FROM menu_item WHERE id = ?) WHERE id = ?")
+			.params(a, b)
+			.update();
+
+		deleteItem(a, admin).andExpect(status().isNoContent());
+
+		mvc.perform(get(url)).andExpect(status().isOk());
+	}
+
+	@Test
+	void deleteOrderedItemIsRejectedAndChangesNothing() throws Exception {
+		long id = createItem(hotDrinks, "Margherita", "food", "18.00");
+		long order = sendOrder(id);
+
+		deleteItem(id, admin).andExpect(status().isConflict())
+			.andExpect(jsonPath("$.detail")
+				.value("Margherita was already ordered and cannot be deleted. Deactivate it instead."))
+			.andExpect(jsonPath("$.alreadyOrdered").value(true));
+
+		mvc.perform(get("/admin/items").header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(jsonPath("$[0].name").value("Margherita"))
+			.andExpect(jsonPath("$[0].active").value(true));
+		assertThat(jdbc.sql("SELECT count(*) FROM order_line WHERE order_id = ?").param(order).query(Long.class)
+			.single()).isEqualTo(1);
+	}
+
+	@Test
+	void itemOrderedOnlyInAVoidedOrderCannotBeDeleted() throws Exception {
+		long id = createItem(hotDrinks, "Tea", "drink", "4.00");
+		long order = sendOrder(id);
+		mvc.perform(post("/admin/orders/" + order + "/void").header(HttpHeaders.AUTHORIZATION, bearer(admin))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(json("reason", "test order"))).andExpect(status().isOk());
+
+		deleteItem(id, admin).andExpect(status().isConflict()).andExpect(jsonPath("$.alreadyOrdered").value(true));
+	}
+
+	@Test
+	void waiterCannotDeleteItems() throws Exception {
+		long id = createItem(hotDrinks, "Tea", "drink", "4.00");
+		deleteItem(id, waiterToken()).andExpect(status().isForbidden());
 	}
 
 	@Test
@@ -153,7 +229,7 @@ class ItemAdminTest extends MenuTestSupport {
 	@Test
 	void waiterCannotManageItems() throws Exception {
 		String waiter = waiterToken();
-		mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/admin/items").header(HttpHeaders.AUTHORIZATION, bearer(waiter))
+		mvc.perform(post("/admin/items").header(HttpHeaders.AUTHORIZATION, bearer(waiter))
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(json("categoryId", hotDrinks, "name", "X", "type", "drink", "price", "1.00")))
 			.andExpect(status().isForbidden());
@@ -161,7 +237,7 @@ class ItemAdminTest extends MenuTestSupport {
 
 	@Test
 	void createServiceInSalonMode() throws Exception {
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 		long face = createCategory("Face");
 		postItem(json("categoryId", face, "name", "Facial", "type", "service", "price", "120.00", "durationMin", 60))
 			.andExpect(status().isCreated())
@@ -171,23 +247,22 @@ class ItemAdminTest extends MenuTestSupport {
 	}
 
 	@Test
-	void foodIsRejectedInSalonMode() throws Exception {
-		settingsService.changeMode(Mode.SALON);
-		postItem(json("categoryId", hotDrinks, "name", "Pizza", "type", "food", "price", "18.00"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.type").value("Only services can be created in salon mode"));
+	void foodIsAcceptedInASalon() throws Exception {
+		// Spec menu-catalog, "Hair salon with drinks": item types no longer depend on a mode.
+		settingsService.applyTemplate(Template.SALON);
+		postItem(json("categoryId", hotDrinks, "name", "Espresso", "type", "drink", "price", "4.50"))
+			.andExpect(status().isCreated());
 	}
 
 	@Test
-	void serviceIsRejectedInEventMode() throws Exception {
+	void serviceIsAcceptedAtAnEvent() throws Exception {
 		postItem(json("categoryId", hotDrinks, "name", "Facial", "type", "service", "price", "120.00"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.errors.type").value("Services are only available in salon mode"));
+			.andExpect(status().isCreated());
 	}
 
 	@Test
 	void invalidDurationIsRejected() throws Exception {
-		settingsService.changeMode(Mode.SALON);
+		settingsService.applyTemplate(Template.SALON);
 		for (int minutes : new int[] { 0, 900 }) {
 			postItem(json("categoryId", hotDrinks, "name", "Facial", "type", "service", "price", "120.00",
 					"durationMin", minutes))
@@ -217,7 +292,7 @@ class ItemAdminTest extends MenuTestSupport {
 	}
 
 	private ResultActions postItem(String body) throws Exception {
-		return mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/admin/items")
+		return mvc.perform(post("/admin/items")
 			.header(HttpHeaders.AUTHORIZATION, bearer(admin))
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(body));
@@ -227,6 +302,32 @@ class ItemAdminTest extends MenuTestSupport {
 		return mvc.perform(put("/admin/items/" + id).header(HttpHeaders.AUTHORIZATION, bearer(admin))
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(body));
+	}
+
+
+	private ResultActions deleteItem(long id, String token) throws Exception {
+		return mvc.perform(delete("/admin/items/" + id).header(HttpHeaders.AUTHORIZATION, bearer(token)));
+	}
+
+	private String uploadImage(long id) throws Exception {
+		String body = mvc.perform(multipart("/admin/items/" + id + "/image")
+			.file(new MockMultipartFile("file", "a.png", "image/png", ImageUploadTest.noiseImage(64, 64, "png")))
+			.header(HttpHeaders.AUTHORIZATION, bearer(admin))).andExpect(status().isOk()).andReturn().getResponse()
+			.getContentAsString();
+		return JsonPath.read(body, "$.imageUrl");
+	}
+
+	/** Sends an order with one line of the item as a waiter and returns the order id. */
+	private long sendOrder(long itemId) throws Exception {
+		createStaff("ben", Role.WAITER, "4712");
+		String body = mvc.perform(post("/orders").header(HttpHeaders.AUTHORIZATION, bearer(login("ben", "4712")))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"tableLabel\":\"12\",\"lines\":[" + json("menuItemId", itemId, "qty", 1) + "]}"))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		return ((Number) JsonPath.read(body, "$.id")).longValue();
 	}
 
 }

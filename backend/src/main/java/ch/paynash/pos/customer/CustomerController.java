@@ -21,15 +21,15 @@ import org.springframework.web.bind.annotation.RestController;
 import ch.paynash.pos.auth.AuthenticatedStaff;
 import ch.paynash.pos.common.ApiException;
 import ch.paynash.pos.common.Money;
-import ch.paynash.pos.settings.Mode;
-import ch.paynash.pos.settings.RequiresMode;
+import ch.paynash.pos.settings.Feature;
+import ch.paynash.pos.settings.RequiresFeature;
 import ch.paynash.pos.staff.Role;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** Salon customers (spec customer-management). Deactivating, deleting, and exporting are admin-only. */
 @RestController
-@RequiresMode(Mode.SALON)
+@RequiresFeature(Feature.CUSTOMERS)
 @Tag(name = "Customers")
 public class CustomerController {
 

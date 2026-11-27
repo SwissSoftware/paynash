@@ -261,6 +261,23 @@ void main() {
       expect(total(tester), 'CHF 4.50');
     });
 
+    testWidgets('a deleted item is removed from the draft and the rest kept', (tester) async {
+      final (app, menu) = await start(tester);
+      await enterTable(tester, '12');
+      await tapTile(tester, menu.cola);
+      await tapTile(tester, menu.beer);
+      app.backend.items.removeWhere((i) => i['id'] == menu.beer);
+
+      await send(tester);
+
+      expect(find.text('Deleted items no longer available'), findsOneWidget);
+      expect(app.backend.orders, isEmpty);
+      expect(find.byKey(Key('menu-tile-${menu.beer}')), findsNothing);
+      expect(find.byKey(const Key('draft-line-0')), findsOneWidget);
+      expect(find.byKey(const Key('draft-line-1')), findsNothing);
+      expect(total(tester), 'CHF 4.50');
+    });
+
     testWidgets('without a connection a banner shows and sending is blocked', (tester) async {
       final (app, menu) = await start(tester);
       await enterTable(tester, '12');

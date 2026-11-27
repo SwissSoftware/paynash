@@ -36,6 +36,7 @@ Future<AppHarness> start(WidgetTester tester, {bool admin = true}) async {
     'customers': [
       {'number': 2, 'name': 'Peter Meili', 'invoiceCount': 2, 'revenue': '300.00'},
       {'number': 3, 'name': 'Deleted customer', 'invoiceCount': 1, 'revenue': '60.00'},
+      {'number': null, 'name': 'Ohne Kunde', 'invoiceCount': 30, 'revenue': '845.50'},
     ],
   };
   await app.start();
@@ -81,6 +82,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Deleted customer'), findsOneWidget);
     expect(find.text('No. 3 · 1 invoices'), findsOneWidget);
+    // Change invoices-without-customer: one entry without number.
+    expect(find.text('Ohne Kunde'), findsOneWidget);
+    expect(find.text('30 invoices'), findsOneWidget);
   });
 
   testWidgets('previous month and Excel download', (tester) async {

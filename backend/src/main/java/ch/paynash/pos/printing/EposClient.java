@@ -97,6 +97,8 @@ public class EposClient {
 	public EposClient(@Value("${pos.printing.connect-timeout:3s}") Duration connectTimeout,
 			@Value("${pos.printing.epos-timeout:10s}") Duration eposTimeout) {
 		this.http = HttpClient.newBuilder()
+			// The default HTTP_2 sends "Upgrade: h2c"; Epson's web server then closes the connection without answer.
+			.version(HttpClient.Version.HTTP_1_1)
 			.connectTimeout(connectTimeout)
 			.followRedirects(HttpClient.Redirect.NEVER)
 			.build();

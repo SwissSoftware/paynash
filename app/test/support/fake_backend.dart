@@ -167,6 +167,18 @@ class FakeBackend {
         }
         return _json(200, i);
       }
+      if (r.method == 'DELETE') {
+        final ordered = orders.any((o) => (o['lines'] as List).any((l) => l['menuItemId'] == i['id']));
+        if (ordered) {
+          return _json(409, {
+            'status': 409,
+            'detail': '${i['name']} was already ordered and cannot be deleted. Deactivate it instead.',
+            'alreadyOrdered': true,
+          });
+        }
+        items.remove(i);
+        return http.Response('', 204);
+      }
       final errors = _validateItem(body!);
       if (errors.isNotEmpty) return _problem(400, 'Validation failed', errors);
       i
@@ -185,8 +197,6 @@ class FakeBackend {
   Map<String, String> _validateItem(Map<String, dynamic> b) => {
     if ((b['name'] as String? ?? '').trim().isEmpty) 'name': 'must not be blank',
     if (b['type'] == null) 'type': 'Type is required (food, drink, or service)',
-    if (b['type'] != null && salon.isSalon && b['type'] != 'service')
-      'type': 'Only services can be created in salon mode',
     if (b['durationMin'] != null &&
         ((b['durationMin'] as int) < 5 || (b['durationMin'] as int) > 600))
       'durationMin': 'Duration must be between 5 and 600 minutes',
@@ -245,7 +255,6 @@ class FakeBackend {
   /// Adds a ticket to an order, e.g. a failed kitchen ticket.
   Map<String, dynamic> addTicket(
     Map<String, dynamic> order, {
-    String type = 'food',
     String kind = 'normal',
     String? printer = 'Kitchen',
     String status = 'printed',
@@ -258,7 +267,6 @@ class FakeBackend {
     final ticket = {
       'id': _nextTicketId++,
       'kind': kind,
-      'type': type,
       'printer': printer,
       'status': status,
       'waitingReason': waitingReason,
@@ -319,33 +327,6 @@ class FakeBackend {
 
   static int _lineTotal(Map<String, dynamic> l) =>
       l['status'] == 'cancelled' ? 0 : (l['qty'] as int) * _rappen(l['unitPrice'] as String);
-
-  /// Salon orders belong to a customer and print no tickets.
-  http.Response _confirmSalonOrder(Map<String, dynamic> body, FakeStaff me) {
-    final customerId = body['customerId'] as int?;
-    if (customerId == null) {
-      return _problem(400, 'Validation failed', {'customerId': 'Customer is required'});
-    }
-    final c = salon.customer(customerId);
-    if (c['active'] != true) {
-      return _json(409, {
-        'status': 409,
-        'detail': '${FakeSalon.customerName(c)} is no longer active',
-        'inactiveCustomerId': customerId,
-      });
-    }
-    final order = addSentOrder(null, me, const [])
-      ..['customerId'] = customerId
-      ..['customerNumber'] = c['number']
-      ..['customerName'] = FakeSalon.customerName(c);
-    for (final l in (body['lines'] as List).cast<Map<String, dynamic>>()) {
-      final note = (l['note'] as String?)?.trim();
-      (order['lines'] as List).add(
-        _line(l['menuItemId'] as int, l['qty'] as int, note == null || note.isEmpty ? null : note),
-      );
-    }
-    return _json(201, _orderJson(order));
-  }
 
   Map<String, dynamic> _invoiceRef(Map<String, dynamic> o) {
     final i = salon.invoiceOf(o['id'] as int);
@@ -417,28 +398,73 @@ class FakeBackend {
           },
       ]);
     }
-    if (path == '/orders' && r.method == 'POST' && salon.isSalon) return _confirmSalonOrder(body!, me);
     if (path == '/orders' && r.method == 'POST') {
-      final label = (body!['tableLabel'] as String).trim().toUpperCase();
-      if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(label)) {
-        return _json(400, {
-          'status': 400,
-          'detail': 'Validation failed',
-          'errors': {'tableLabel': 'Table must be 1 to 10 letters or digits'},
+      // Order target per features, as the backend (spec order-taking).
+      final tables = salon.has('tables');
+      final withCustomers = salon.has('customers');
+      final rawLabel = (body!['tableLabel'] as String?)?.trim();
+      String? label;
+      if (tables) {
+        label = (rawLabel ?? '').toUpperCase();
+        if (!RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(label)) {
+          return _json(400, {
+            'status': 400,
+            'detail': 'Validation failed',
+            'errors': {'tableLabel': 'Table must be 1 to 10 letters or digits'},
+          });
+        }
+      } else if (rawLabel != null && rawLabel.isNotEmpty) {
+        return _problem(400, 'Validation failed', {
+          'tableLabel': 'Tables are switched off, so orders have no table',
         });
       }
+      final customerId = body['customerId'] as int?;
+      if (!withCustomers && customerId != null) {
+        return _problem(400, 'Validation failed', {
+          'customerId': 'Customers are switched off, so orders have no customer',
+        });
+      }
+      if (withCustomers && !tables && customerId == null) {
+        return _problem(400, 'Validation failed', {'customerId': 'Customer is required'});
+      }
+      Map<String, dynamic>? customer;
+      if (customerId != null) {
+        customer = salon.customer(customerId);
+        if (customer['active'] != true) {
+          return _json(409, {
+            'status': 409,
+            'detail': '${FakeSalon.customerName(customer)} is no longer active',
+            'inactiveCustomerId': customerId,
+          });
+        }
+      }
       final lines = (body['lines'] as List).cast<Map<String, dynamic>>();
-      final inactive = [for (final l in lines) items.firstWhere((i) => i['id'] == l['menuItemId'])]
-          .where((i) => i['active'] != true)
-          .toSet();
-      if (inactive.isNotEmpty) {
+      final deleted = {
+        for (final l in lines)
+          if (!items.any((i) => i['id'] == l['menuItemId'])) l['menuItemId'] as int,
+      };
+      final inactive = [
+        for (final l in lines)
+          if (!deleted.contains(l['menuItemId'])) items.firstWhere((i) => i['id'] == l['menuItemId']),
+      ].where((i) => i['active'] != true).toSet();
+      if (inactive.isNotEmpty || deleted.isNotEmpty) {
+        final names = [
+          ...inactive.map((i) => i['name'] as String),
+          if (deleted.isNotEmpty) inactive.isEmpty ? 'Deleted items' : 'deleted items',
+        ];
         return _json(409, {
           'status': 409,
-          'detail': '${inactive.map((i) => i['name']).join(', ')} no longer available',
-          'inactiveMenuItemIds': [for (final i in inactive) i['id']],
+          'detail': '${names.join(', ')} no longer available',
+          'inactiveMenuItemIds': [for (final i in inactive) i['id'], ...deleted],
         });
       }
       final order = addSentOrder(label, me, const []);
+      if (customer != null) {
+        order
+          ..['customerId'] = customerId
+          ..['customerNumber'] = customer['number']
+          ..['customerName'] = FakeSalon.customerName(customer);
+      }
       for (final l in lines) {
         final note = (l['note'] as String?)?.trim();
         (order['lines'] as List).add(
@@ -463,7 +489,6 @@ class FakeBackend {
       if (original['status'] == 'unclear') original['resolution'] = 'reprint';
       final ticket = addTicket(
         o,
-        type: original['type'] as String,
         kind: 'reprint',
         printer: original['printer'] as String? ?? 'Kitchen',
         status: reprintStatus,
@@ -527,22 +552,55 @@ class FakeBackend {
   /// Names of printers a test print was sent to.
   final testPrints = <String>[];
 
-  int addPrinter(String name, String type, {String address = '192.168.1.50', bool active = true}) {
+  /// A printer that prints the lines of [categoryIds] if [tickets] is on, and
+  /// invoice receipts if [receipts] is on (change printer-category-routing).
+  int addPrinter(
+    String name, {
+    bool tickets = true,
+    bool receipts = false,
+    List<int> categoryIds = const [],
+    String address = '192.168.1.50',
+    bool active = true,
+  }) {
     final id = _nextPrinterId++;
     printers.add({
       'id': id,
       'name': name,
       'address': address,
       'deviceId': 'local_printer',
-      'type': type,
+      'printsTickets': tickets,
+      'printsReceipts': receipts,
+      'categoryIds': [...categoryIds],
       'active': active,
     });
     return id;
   }
 
+  Map<String, dynamic> _printerJson(Map<String, dynamic> p) => {
+    ...p,
+    'categories': [
+      for (final c in categories)
+        if ((p['categoryIds'] as List).contains(c['id'])) {'id': c['id'], 'name': c['name']},
+    ],
+  };
+
   http.Response? _printerRoutes(http.Request r, Map<String, dynamic>? body) {
     final path = r.url.path;
-    if (path == '/admin/printers' && r.method == 'GET') return _json(200, printers);
+    if (path == '/admin/printers' && r.method == 'GET') {
+      bool printed(Map<String, dynamic> c) => printers.any(
+        (p) =>
+            p['active'] == true &&
+            p['printsTickets'] == true &&
+            (p['categoryIds'] as List).contains(c['id']),
+      );
+      return _json(200, {
+        'printers': [for (final p in printers) _printerJson(p)],
+        'unprintedCategories': [
+          for (final c in categories)
+            if (!printed(c)) {'id': c['id'], 'name': c['name']},
+        ],
+      });
+    }
     final match = RegExp(r'^/admin/printers(?:/(\d+))?(/test)?$').firstMatch(path);
     if (match == null) return null;
     final id = match.group(1) == null ? null : int.parse(match.group(1)!);
@@ -555,25 +613,25 @@ class FakeBackend {
     final errors = <String, String>{};
     if ((body!['name'] as String).isEmpty) errors['name'] = 'must not be blank';
     if ((body['address'] as String).isEmpty) errors['address'] = 'must not be blank';
-    final other = printers.where(
-      (p) => p['id'] != id && p['active'] == true && p['type'] == body['type'],
-    );
-    if (body['active'] == true && other.isNotEmpty) {
-      errors['type'] =
-          '"${other.first['name']}" already prints ${body['type']}. Deactivate it first.';
-    }
+    final categoryIds = [for (final c in body['categoryIds'] as List? ?? const []) c as int];
+    final unknown = categoryIds.where((c) => !categories.any((k) => k['id'] == c));
+    if (unknown.isNotEmpty) errors['categoryIds'] = 'Unknown category: ${unknown.first}';
     if (errors.isNotEmpty) return _problem(400, 'Validation failed', errors);
     if (id == null) {
       final newId = addPrinter(
         body['name'] as String,
-        body['type'] as String,
+        tickets: body['printsTickets'] as bool? ?? false,
+        receipts: body['printsReceipts'] as bool? ?? false,
+        categoryIds: categoryIds,
         address: body['address'] as String,
         active: body['active'] as bool,
       );
-      return _json(201, printers.firstWhere((p) => p['id'] == newId));
+      return _json(201, _printerJson(printers.firstWhere((p) => p['id'] == newId)));
     }
-    final p = printers.firstWhere((p) => p['id'] == id)..addAll(body);
-    return _json(200, p);
+    final p = printers.firstWhere((p) => p['id'] == id)
+      ..addAll(body)
+      ..['categoryIds'] = categoryIds;
+    return _json(200, _printerJson(p));
   }
 
   // --- station

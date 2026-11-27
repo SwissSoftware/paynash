@@ -24,17 +24,17 @@ import ch.paynash.pos.auth.AuthenticatedStaff;
 import ch.paynash.pos.common.Money;
 import ch.paynash.pos.common.VatRates;
 import ch.paynash.pos.printing.TicketView;
-import ch.paynash.pos.settings.Mode;
-import ch.paynash.pos.settings.RequiresMode;
+import ch.paynash.pos.settings.Feature;
+import ch.paynash.pos.settings.RequiresFeature;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-/** Invoices of salon orders (spec invoicing). Cancelling is admin-only. */
+/** Invoices of orders with a customer, while invoices are on (spec invoicing). Cancelling is admin-only. */
 @RestController
-@RequiresMode(Mode.SALON)
+@RequiresFeature(Feature.INVOICES)
 @Tag(name = "Invoices")
 public class InvoiceController {
 
@@ -51,7 +51,8 @@ public class InvoiceController {
 	}
 
 	private InvoiceView view(Invoice invoice) {
-		return InvoiceView.of(invoice, receipts.latest(invoice.id()).map(TicketView::of).orElse(null));
+		return InvoiceView.of(invoice, receipts.latest(invoice.id()).map(TicketView::of).orElse(null),
+				receipts.latestPerPrinter(invoice.id()).stream().map(TicketView::of).toList());
 	}
 
 	public record LineView(int position, int qty, String name, String category, String unitPrice, String vatRate,
@@ -69,15 +70,16 @@ public class InvoiceController {
 	 * {@code status} is open, paid, or cancelled; {@code payment} is the active payment, {@code paymentHistory} every
 	 * payment including removed ones. {@code vatUid} and {@code vat} are only set if the invoice has VAT.
 	 * {@code receipt} is the latest receipt print job: its status, and the printer's error if it waits, is unclear,
-	 * or failed (e.g. "no printer configured").
+	 * or failed (e.g. "no active printer"). {@code receipts} is the latest receipt job of each printer that received
+	 * one; empty when no printer has receipts on.
 	 */
 	public record InvoiceView(long id, String number, long orderId, LocalDate date, Instant issuedAt, String issuedBy,
 			Invoice.Status status, Invoice.Business business, Invoice.CustomerCopy customer, List<LineView> lines,
 			String total, boolean vatEnabled, String vatUid, List<VatView> vat, Instant cancelledAt,
 			String cancelledBy, String cancelReason, PaymentView payment, List<PaymentView> paymentHistory,
-			TicketView receipt) {
+			TicketView receipt, List<TicketView> receipts) {
 
-		static InvoiceView of(Invoice i, TicketView receipt) {
+		static InvoiceView of(Invoice i, TicketView receipt, List<TicketView> receipts) {
 			var payments = i.payments().stream().map(InvoiceView::payment).toList();
 			Invoice.Payment active = i.activePayment();
 			return new InvoiceView(i.id(), i.number(), i.orderId(), i.invoiceDate(), i.issuedAt(), i.issuedByName(),
@@ -95,7 +97,7 @@ public class InvoiceController {
 								Money.format(v.netRappen()), Money.format(v.vatRappen())))
 						.toList(),
 					i.cancelledAt(), i.cancelledByName(), i.cancelReason(), active == null ? null : payment(active),
-					payments, receipt);
+					payments, receipt, receipts);
 		}
 
 		private static PaymentView payment(Invoice.Payment p) {
@@ -105,7 +107,8 @@ public class InvoiceController {
 
 	}
 
-	public record InvoiceSummaryView(long id, String number, LocalDate date, int customerNumber, String customerName,
+	/** Customer number and name are null for an invoice without customer. */
+	public record InvoiceSummaryView(long id, String number, LocalDate date, Integer customerNumber, String customerName,
 			String total, Invoice.Status status) {
 	}
 
@@ -119,8 +122,9 @@ public class InvoiceController {
 
 	@PostMapping("/orders/{orderId}/invoice")
 	@ResponseStatus(HttpStatus.CREATED)
-	@Operation(summary = "Issue the invoice of a confirmed salon order",
-			description = "Accepts an Idempotency-Key header. 409 if business details are missing (missingDetails), "
+	@Operation(summary = "Issue the invoice of a confirmed order with a customer",
+			description = "Accepts an Idempotency-Key header. 409 if business details are missing (missingDetails), the order has no "
+					+ "customer, "
 					+ "the order is voided, has no lines left, or already has an invoice (invoiceId, invoiceNumber).")
 	public InvoiceView issue(@PathVariable long orderId, @AuthenticationPrincipal AuthenticatedStaff current) {
 		return view(service.issue(orderId, current));
@@ -165,9 +169,10 @@ public class InvoiceController {
 	@ResponseStatus(HttpStatus.CREATED)
 	@Operation(summary = "Print the receipt again as a copy",
 			description = "Marked \"KOPIE\" (and \"STORNIERT\" for a cancelled invoice). Also resolves an unclear "
-					+ "receipt. 409 while a receipt of the invoice is still waiting or printing.")
-	public TicketView printCopy(@PathVariable long id) {
-		return TicketView.of(receipts.copy(id));
+					+ "receipt. Printed on every printer with receipts on; the list is empty when there is none. 409 "
+					+ "while a receipt of the invoice is still waiting or printing.")
+	public List<TicketView> printCopy(@PathVariable long id) {
+		return receipts.copy(id).stream().map(TicketView::of).toList();
 	}
 
 	@PostMapping("/invoices/{id}/payment")

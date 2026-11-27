@@ -133,16 +133,25 @@ public class MenuAdminController {
 	@ResponseStatus(HttpStatus.CREATED)
 	@Operation(summary = "Create an item",
 			description = "price is CHF as a string, e.g. \"4.50\". vatRate is one of \"8.1\" (default), \"2.6\", "
-					+ "\"3.8\", \"0\". Salon mode accepts only type service, event mode only food and drink.")
+					+ "\"3.8\", \"0\".")
 	public ItemView createItem(@Valid @RequestBody ItemRequest r) {
 		return ItemView.of(service.createItem(r.toInput()));
 	}
 
 	@PutMapping("/items/{id}")
 	@Operation(summary = "Edit, deactivate, or reactivate an item",
-			description = "Items are deactivated instead of deleted, so past orders stay intact.")
+			description = "Items that were already ordered can only be deactivated, so past orders stay intact. "
+					+ "Items that were never ordered can be deleted.")
 	public ItemView updateItem(@PathVariable long id, @Valid @RequestBody ItemRequest r) {
 		return ItemView.of(service.updateItem(id, r.toInput()));
+	}
+
+	@DeleteMapping("/items/{id}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Operation(summary = "Delete an item that was never ordered",
+			description = "409 with alreadyOrdered=true if any order line references the item; deactivate it instead.")
+	public void deleteItem(@PathVariable long id) {
+		service.deleteItem(id);
 	}
 
 	@PostMapping(path = "/items/{id}/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

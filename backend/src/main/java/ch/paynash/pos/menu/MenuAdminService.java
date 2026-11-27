@@ -4,6 +4,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,8 +14,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import ch.paynash.pos.common.ApiException;
 import ch.paynash.pos.common.Money;
 import ch.paynash.pos.common.VatRates;
-import ch.paynash.pos.settings.Mode;
-import ch.paynash.pos.settings.SettingsService;
 
 @Service
 public class MenuAdminService {
@@ -23,12 +22,9 @@ public class MenuAdminService {
 
 	private final ImageStore images;
 
-	private final SettingsService settings;
-
-	public MenuAdminService(MenuRepository menu, ImageStore images, SettingsService settings) {
+	public MenuAdminService(MenuRepository menu, ImageStore images) {
 		this.menu = menu;
 		this.images = images;
-		this.settings = settings;
 	}
 
 	// --- categories
@@ -97,7 +93,6 @@ public class MenuAdminService {
 	@Transactional
 	public MenuItem createItem(ItemInput in) {
 		category(in.categoryId(), "categoryId");
-		requireTypeForMode(in.type());
 		long id = menu.insertItem(in.categoryId(), in.name().trim(), in.type(), price(in.price()),
 				blankToNull(in.description()), in.active(), duration(in), vatRate(in.vatRate(), VatRates.STANDARD));
 		return item(id);
@@ -107,7 +102,6 @@ public class MenuAdminService {
 	public MenuItem updateItem(long id, ItemInput in) {
 		MenuItem current = item(id);
 		category(in.categoryId(), "categoryId");
-		requireTypeForMode(in.type());
 		menu.updateItem(id, in.categoryId(), in.name().trim(), in.type(), price(in.price()),
 				blankToNull(in.description()), in.active(), duration(in),
 				vatRate(in.vatRate(), current.vatRatePermille()));
@@ -126,6 +120,32 @@ public class MenuAdminService {
 			menu.setItemOrder(ids.get(i), i);
 		}
 		return menu.findItemsInCategory(categoryId);
+	}
+
+	/**
+	 * Deletes an item that was never ordered (spec menu-catalog, "Delete unused items, deactivate ordered ones"). The
+	 * RESTRICT foreign key from order_line catches a line inserted after the check (change delete-unsold-menu-items,
+	 * design D2).
+	 */
+	@Transactional
+	public void deleteItem(long id) {
+		MenuItem current = item(id);
+		if (menu.hasOrderLines(id)) {
+			throw alreadyOrdered(current);
+		}
+		try {
+			menu.deleteItem(id);
+		}
+		catch (DataIntegrityViolationException ex) {
+			throw alreadyOrdered(current);
+		}
+		deleteAfterCommitIfUnused(current.imageRef(), null);
+	}
+
+	private static ApiException alreadyOrdered(MenuItem item) {
+		return ApiException
+			.conflict(item.name() + " was already ordered and cannot be deleted. Deactivate it instead.")
+			.with("alreadyOrdered", true);
 	}
 
 	/**
@@ -192,17 +212,6 @@ public class MenuAdminService {
 	private static void requireSameIds(Set<Long> existing, List<Long> ids) {
 		if (ids.size() != existing.size() || !existing.equals(new HashSet<>(ids))) {
 			throw ApiException.validation("ids", "Must list every entry exactly once");
-		}
-	}
-
-	/** Salon mode sells only services, event mode never does (spec menu-catalog, "Item types per mode"). */
-	private void requireTypeForMode(ItemType type) {
-		boolean salon = settings.mode() == Mode.SALON;
-		if (salon && type != ItemType.SERVICE) {
-			throw ApiException.validation("type", "Only services can be created in salon mode");
-		}
-		if (!salon && type == ItemType.SERVICE) {
-			throw ApiException.validation("type", "Services are only available in salon mode");
 		}
 	}
 

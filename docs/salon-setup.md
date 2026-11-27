@@ -1,26 +1,33 @@
 # Salon setup and daily use
 
-Paynash can run a beauty salon instead of an event or restaurant (change `add-salon-mode`). A salon sells
-**services** to **customers**, gives them an **invoice** (receipt and A4 PDF), and looks at a **monthly report** with
-an Excel export. Tables, kitchen and bar tickets, and print stations are not used.
+Guide for the business template **Salon** (change `configurable-business-features`). A salon sells **services** to
+**customers**, gives them an **invoice** (receipt and A4 PDF), and looks at a **monthly report** with an Excel export.
+Tables and print stations are switched off. Other templates: [event-setup.md](event-setup.md) (Event and Restaurant)
+and [counter-setup.md](counter-setup.md) (Counter sales).
 
-One installation runs either as an event/restaurant or as a salon, never both. Each salon gets its own installation.
+One installation serves one business. Each salon gets its own installation.
 
 ## 1. Install
 
 Install the server and the apps as described in [operations.md](operations.md), sections 1 and 2
 (server, HTTPS certificate, mobile apps, first admin). A small mini PC at the counter is enough.
 
-## 2. Switch to salon mode
-
-Do this **before the first order**. Once an order exists, the mode can no longer change.
+## 2. Apply the Salon template
 
 1. Log in as admin and open **Settings**.
-2. Under **Mode**, choose **Salon** and confirm.
+2. Under **Business template**, tap **Salon** and confirm. This switches on **Customers**, **Invoices**, and
+   **Sales report**, and switches off **Tables** and **Stations**.
 3. All devices show the salon functions after their next refresh (or when the app comes back to the foreground).
 
-In salon mode, waiters are called **staff**, menu items are called **services**, and sending an order is called
-**confirming** it. The stored roles stay the same.
+The template also sets the **Terms**: waiters are called **Staff**, menu items **Services**, and sending an order
+**Confirm**. You can rename them under **Terms**; the stored roles stay the same.
+
+You can adjust single features later under **Features**, for example switch on **Tables** for a salon with a
+café corner. Switching a feature off hides its functions but keeps all data. The sales report needs invoices, so it
+can only be switched on while invoices are on.
+
+Walk-in guests without a customer record can also get an invoice (receipt without recipient) up to CHF 400.00; above
+that, Paynash asks for a customer (change `invoices-without-customer`). In the report they appear as **Ohne Kunde**.
 
 ## 3. Business details and VAT
 

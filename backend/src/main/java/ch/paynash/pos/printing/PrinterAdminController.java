@@ -17,7 +17,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -36,28 +35,35 @@ public class PrinterAdminController {
 	}
 
 	/**
-	 * {@code status} is the printer's last known state and {@code statusCheckedAt} when it was seen.
-	 * {@code stations} are the active stations showing the printer, each with the time of its last poll.
+	 * {@code printsTickets} means the printer prints the lines of {@code categories}, {@code printsReceipts} that it
+	 * prints invoice receipts. {@code status} is the printer's last known state and {@code statusCheckedAt} when it
+	 * was seen. {@code stations} are the active stations showing the printer, each with the time of its last poll.
 	 */
-	public record PrinterView(long id, String name, String address, String deviceId, PrintPurpose type, boolean active,
+	public record PrinterView(long id, String name, String address, String deviceId, boolean printsTickets,
+			boolean printsReceipts, List<PrinterRepository.CategoryRef> categories, boolean active,
 			PrinterState status, Instant statusCheckedAt, List<PrinterRepository.StationSeen> stations) {
 
 	}
 
+	/** The printers, and the categories no active printer with tickets on prints (shown as information only). */
+	public record PrintersView(List<PrinterView> printers, List<PrinterRepository.CategoryRef> unprintedCategories) {
+	}
+
 	private PrinterView view(Printer p) {
 		PrinterStatusMonitor.Status s = monitor.status(p.id());
-		return new PrinterView(p.id(), p.name(), p.address(), p.deviceId(), p.purpose(), p.active(), s.state(),
-				s.checkedAt(), service.stationsShowing(p.id()));
+		return new PrinterView(p.id(), p.name(), p.address(), p.deviceId(), p.printsTickets(), p.printsReceipts(),
+				service.categories(p.id()), p.active(), s.state(), s.checkedAt(), service.stationsShowing(p.id()));
 	}
 
 	public record PrinterRequest(@NotBlank @Size(max = 60) String name,
 			@NotBlank @Size(max = 255) @Pattern(regexp = "\\s*(https?://)?[A-Za-z0-9.\\-\\[\\]:]+/?\\s*",
 					message = "Enter an IP address or host name, optionally with port") String address,
-			@Size(max = 60) String deviceId, @NotNull(message = "Type is required (food, drink, or receipt)") PrintPurpose type,
+			@Size(max = 60) String deviceId, Boolean printsTickets, Boolean printsReceipts, List<Long> categoryIds,
 			Boolean active) {
 
 		PrinterService.PrinterInput toInput() {
-			return new PrinterService.PrinterInput(name, address, deviceId, type, active == null || active);
+			return new PrinterService.PrinterInput(name, address, deviceId, Boolean.TRUE.equals(printsTickets),
+					Boolean.TRUE.equals(printsReceipts), categoryIds, active == null || active);
 		}
 
 	}
@@ -66,14 +72,17 @@ public class PrinterAdminController {
 	}
 
 	@GetMapping
-	@Operation(summary = "List all printers")
-	public List<PrinterView> list() {
-		return service.list().stream().map(this::view).toList();
+	@Operation(summary = "List all printers",
+			description = "unprintedCategories are the categories no active printer with tickets on prints.")
+	public PrintersView list() {
+		return new PrintersView(service.list().stream().map(this::view).toList(), service.unprintedCategories());
 	}
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
-	@Operation(summary = "Add a printer", description = "At most one active printer per type (food or drink).")
+	@Operation(summary = "Add a printer",
+			description = "printsTickets with categoryIds: prints the lines of those categories. printsReceipts: prints "
+					+ "invoice receipts. A category may be assigned to several printers.")
 	public PrinterView create(@Valid @RequestBody PrinterRequest r) {
 		return view(service.create(r.toInput()));
 	}

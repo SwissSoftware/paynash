@@ -6,6 +6,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -16,7 +17,8 @@ import com.sun.net.httpserver.HttpServer;
 /**
  * An Epson printer's ePOS-Print endpoint on localhost. Answers success unless told otherwise and records every
  * request body. Faults can be injected: slow answers, paper end, and connections dropped before or after the ticket
- * was read (harden-printing-for-events D11).
+ * was read (harden-printing-for-events D11). Like the real printer, it does not answer requests that ask for a
+ * protocol upgrade (fix-epos-http-version D2).
  */
 public class FakeEposPrinter implements AutoCloseable {
 
@@ -35,6 +37,9 @@ public class FakeEposPrinter implements AutoCloseable {
 	public final List<String> requests = new CopyOnWriteArrayList<>();
 
 	public final List<String> queries = new CopyOnWriteArrayList<>();
+
+	/** The headers of every request that reached the printer, including ones it refused. */
+	public final List<Map<String, List<String>>> headers = new CopyOnWriteArrayList<>();
 
 	/** Requests the printer answered with success, i.e. tickets that came out. */
 	private final List<String> printed = new CopyOnWriteArrayList<>();
@@ -59,6 +64,12 @@ public class FakeEposPrinter implements AutoCloseable {
 	public FakeEposPrinter() throws IOException {
 		server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 		server.createContext("/cgi-bin/epos/service.cgi", exchange -> {
+			headers.add(Map.copyOf(exchange.getRequestHeaders()));
+			// Like EPSON-HTTP/1.0: a request asking for a protocol switch (e.g. h2c) gets no answer at all.
+			if (exchange.getRequestHeaders().containsKey("Upgrade")) {
+				exchange.close();
+				return;
+			}
 			Fault fault = faults.apply(requestCount.incrementAndGet());
 			if (fault == Fault.DROP_BEFORE_READ) {
 				exchange.close();

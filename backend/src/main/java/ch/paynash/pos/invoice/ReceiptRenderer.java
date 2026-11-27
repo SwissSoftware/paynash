@@ -53,14 +53,18 @@ public class ReceiptRenderer {
 		t.separator();
 		t.large("Rechnung " + invoice.number());
 		t.normal("Datum " + DATE.format(invoice.invoiceDate()));
+		// No recipient block for an invoice without customer (change invoices-without-customer, design D3).
 		Invoice.CustomerCopy c = invoice.customer();
-		t.normal("Kunde Nr. " + c.number());
-		t.normal(c.name());
-		if (c.street() != null) {
-			t.normal(c.street());
-		}
-		if (c.postalCode() != null || c.city() != null) {
-			t.normal(((c.postalCode() == null ? "" : c.postalCode()) + " " + (c.city() == null ? "" : c.city())).trim());
+		if (c != null) {
+			t.normal("Kunde Nr. " + c.number());
+			t.normal(c.name());
+			if (c.street() != null) {
+				t.normal(c.street());
+			}
+			if (c.postalCode() != null || c.city() != null) {
+				t.normal(((c.postalCode() == null ? "" : c.postalCode()) + " " + (c.city() == null ? "" : c.city()))
+					.trim());
+			}
 		}
 		t.separator();
 		for (Invoice.Line l : invoice.lines()) {

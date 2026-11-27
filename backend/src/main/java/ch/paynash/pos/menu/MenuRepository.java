@@ -118,6 +118,18 @@ public class MenuRepository {
 			.update();
 	}
 
+	/** True if any order line references the item, whatever the status of the line or its order. */
+	public boolean hasOrderLines(long itemId) {
+		return jdbc.sql("SELECT EXISTS (SELECT 1 FROM order_line WHERE menu_item_id = ?)")
+			.param(itemId)
+			.query(Boolean.class)
+			.single();
+	}
+
+	public void deleteItem(long id) {
+		jdbc.sql("DELETE FROM menu_item WHERE id = ?").param(id).update();
+	}
+
 	public void setItemOrder(long id, int order) {
 		jdbc.sql("UPDATE menu_item SET display_order = ? WHERE id = ?").params(order, id).update();
 	}

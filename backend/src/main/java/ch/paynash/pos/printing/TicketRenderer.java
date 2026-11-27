@@ -14,7 +14,7 @@ import ch.paynash.pos.order.OrderLine;
 
 /**
  * Production ticket layout (spec ticket-printing, "Ticket content" and "Cancellation tickets"). Callers pass the
- * lines of one item type, so each ticket goes to exactly one printer. Prices are left out on purpose.
+ * lines routed to one printer. Prices are left out on purpose.
  */
 @Component
 public class TicketRenderer {
@@ -33,7 +33,7 @@ public class TicketRenderer {
 		this.zone = zone;
 	}
 
-	/** The ticket for the lines of one type of a sent order. */
+	/** The ticket for the lines of a sent order that go to one printer. */
 	public Ticket order(Order order, List<OrderLine> lines) {
 		var t = Ticket.builder()
 			.large("Table " + order.tableLabel())
@@ -46,7 +46,7 @@ public class TicketRenderer {
 	}
 
 	/**
-	 * A cancellation ticket for lines of one type: a single cancelled line, or all lines of the type that a void
+	 * A cancellation ticket for one printer: a single cancelled line, or all of the printer's lines that a void
 	 * cancelled.
 	 */
 	public Ticket storno(Order order, List<OrderLine> lines, String reason, boolean orderVoided) {
@@ -60,16 +60,20 @@ public class TicketRenderer {
 		return t.separator().large("Reason: " + reason).build();
 	}
 
-	public Ticket testTicket(Printer printer) {
-		return Ticket.builder()
-			.large("Test print")
-			.large(printer.name())
-			.large(format(clock.instant()))
-			.separator()
-			.normal(printer.purpose() == PrintPurpose.RECEIPT ? "Prints receipts"
-					: "Prints " + printer.purpose().dbValue() + " tickets")
-			.normal("Umlauts: ä ö ü Ä Ö Ü é è à ç")
-			.build();
+	/** Says what the printer prints: the categories of its tickets and/or receipts (design D8). */
+	public Ticket testTicket(Printer printer, List<PrinterRepository.CategoryRef> categories) {
+		var t = Ticket.builder().large("Test print").large(printer.name()).large(format(clock.instant())).separator();
+		if (printer.printsTickets()) {
+			t.normal("Prints tickets: " + (categories.isEmpty() ? "no categories"
+					: String.join(", ", categories.stream().map(PrinterRepository.CategoryRef::name).toList())));
+		}
+		if (printer.printsReceipts()) {
+			t.normal("Prints receipts");
+		}
+		if (!printer.printsTickets() && !printer.printsReceipts()) {
+			t.normal("Prints nothing (tickets and receipts are off)");
+		}
+		return t.normal("Umlauts: ä ö ü Ä Ö Ü é è à ç").build();
 	}
 
 	private static void lines(Ticket.Builder t, List<OrderLine> lines) {

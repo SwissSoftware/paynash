@@ -6,9 +6,10 @@ import java.util.List;
 
 /**
  * An issued invoice as stored (add-salon-mode design D5). Everything printed or exported comes from here, never from
- * the current settings, customer, or menu. {@code status} is open, paid, or cancelled.
+ * the current settings, customer, or menu. {@code status} is open, paid, or cancelled. {@code customerId} and
+ * {@code customer} are null for an invoice without customer (change invoices-without-customer, design D1).
  */
-public record Invoice(long id, String number, long orderId, long customerId, LocalDate invoiceDate, Instant issuedAt,
+public record Invoice(long id, String number, long orderId, Long customerId, LocalDate invoiceDate, Instant issuedAt,
 		String issuedByName, Business business, CustomerCopy customer, boolean vatEnabled, String vatUid,
 		long totalRappen, Status status, Instant cancelledAt, String cancelledByName, String cancelReason,
 		List<Line> lines, List<Vat.Row> vat, List<Payment> payments) {
@@ -40,6 +41,10 @@ public record Invoice(long id, String number, long orderId, long customerId, Loc
 	/** The business details at issue time. */
 	public record Business(String name, String street, String postalCode, String city, String phone, String email,
 			String website, String iban, String accountHolder) {
+	}
+
+	public boolean hasCustomer() {
+		return customer != null;
 	}
 
 	/** The customer details at issue time. */

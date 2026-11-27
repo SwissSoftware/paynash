@@ -3,8 +3,11 @@ package ch.paynash.pos.printing;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterEach;
@@ -48,8 +51,31 @@ public abstract class PrintingTestSupport extends IntegrationTest {
 		return fake;
 	}
 
+	/** Ticket printers by the item type whose categories they print, as the migration sets up existing printers. */
+	private final Map<ItemType, List<Long>> printersByType = new EnumMap<>(ItemType.class);
+
+	/**
+	 * A ticket printer for the categories holding items of {@code type}, now and when {@link #item} adds them later,
+	 * so tests read like "the drink printer".
+	 */
 	protected long printer(String name, String address, ItemType type) {
-		return printerRepository.insert(name, address, "local_printer", PrintPurpose.of(type), true);
+		long id = printerRepository.insert(name, address, "local_printer", true, false, true);
+		printersByType.computeIfAbsent(type, t -> new ArrayList<>()).add(id);
+		jdbc.sql("""
+				INSERT INTO printer_category (printer_id, category_id)
+				SELECT DISTINCT ?, category_id FROM menu_item WHERE type = ? ON CONFLICT DO NOTHING""")
+			.params(id, type.dbValue())
+			.update();
+		return id;
+	}
+
+	/** Assigns {@code category} to the printer (in addition to its other categories). */
+	protected void assign(long printerId, String category) {
+		jdbc.sql("""
+				INSERT INTO printer_category (printer_id, category_id)
+				SELECT ?, id FROM category WHERE name = ? ON CONFLICT DO NOTHING""")
+			.params(printerId, category)
+			.update();
 	}
 
 	/** An address where nothing listens, so connecting is refused at once. */
@@ -62,6 +88,9 @@ public abstract class PrintingTestSupport extends IntegrationTest {
 			.findFirst()
 			.map(c -> c.id())
 			.orElseGet(() -> menu.insertCategory(category));
+		for (long printerId : printersByType.getOrDefault(type, List.of())) {
+			assign(printerId, category);
+		}
 		return menu.insertItem(categoryId, name, type, 450, null, true, null, 81);
 	}
 
@@ -96,8 +125,10 @@ public abstract class PrintingTestSupport extends IntegrationTest {
 		return jobRepository.findByOrder(orderId);
 	}
 
+	/** The order's first ticket on a printer of {@code type} (see {@link #printer}). */
 	protected PrintJob job(long orderId, ItemType type) {
-		return jobs(orderId).stream().filter(j -> j.purpose() == PrintPurpose.of(type)).findFirst().orElseThrow();
+		List<Long> ofType = printersByType.getOrDefault(type, List.of());
+		return jobs(orderId).stream().filter(j -> ofType.contains(j.printerId())).findFirst().orElseThrow();
 	}
 
 	protected long lineId(long orderId, String name) {

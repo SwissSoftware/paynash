@@ -9,7 +9,6 @@ import java.util.List;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import ch.paynash.pos.printing.PrintPurpose;
 
 /** Reads for the print station (spec print-station). */
 @Repository
@@ -31,16 +30,16 @@ public class StationRepository {
 	public record QueueSummary(Integer lastPrintedTicketNo, int waiting, Instant oldestWaitingSince, int unclear) {
 	}
 
-	public record AssignedPrinter(long id, String name, PrintPurpose type, boolean active) {
+	public record AssignedPrinter(long id, String name, boolean printsTickets, boolean printsReceipts, boolean active) {
 	}
 
 	public List<AssignedPrinter> assignedPrinters(long stationId) {
 		return jdbc.sql("""
-				SELECT p.id, p.name, p.purpose, p.active FROM station_printer sp JOIN printer p ON p.id = sp.printer_id
+				SELECT p.id, p.name, p.prints_tickets, p.prints_receipts, p.active FROM station_printer sp JOIN printer p ON p.id = sp.printer_id
 				WHERE sp.station_id = ? ORDER BY lower(p.name)""")
 			.param(stationId)
 			.query((rs, row) -> new AssignedPrinter(rs.getLong("id"), rs.getString("name"),
-					PrintPurpose.fromDb(rs.getString("purpose")), rs.getBoolean("active")))
+					rs.getBoolean("prints_tickets"), rs.getBoolean("prints_receipts"), rs.getBoolean("active")))
 			.list();
 	}
 
